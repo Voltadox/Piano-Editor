@@ -19,7 +19,9 @@ npm run typecheck
 
 ### The studio panel (T)
 
-The panel on the right has five tabs:
+The panel on the right has six tabs:
+
+- **Reference:** open one of your demos (MP3, WAV, M4A…). Keyfall listens for its tempo, bar lines, key, chords, sections and drum hits, then lines the song up with it: the tempo map follows the song's downbeats (bar by bar if it drifts), chord names appear on the left of the stage (click one to change it), a muted *Chords* pad plays the chord lane, and sections are marked. From there: generate a matching beat that follows the song's kicks and busy/quiet parts, or copy its own groove into the step sequencer; fix half/double time with ×2 / ÷2; and practise at 50–90% speed without changing pitch. Everything that follows chords (Follow-chords autotune, harmony guides, Studio suggestions) uses the chord lane.
 
 - **Tracks:** instruments (the loaded soundfont's own presets, with bank and program), colours, mute/solo.
 - **Mixer:** level, pan and reverb for every note track, level/pan/effect for vocals, and the master level. A limiter keeps the mix out of clipping.

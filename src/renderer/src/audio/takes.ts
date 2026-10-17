@@ -2,25 +2,28 @@ import { decodeWavMono, encodeWavMono } from './wav'
 
 /** A recorded pass of audio. Takes are referenced by id from songs and live outside undo history. */
 export interface TakeData {
+  /** mono, or the left channel */
   pcm: Float32Array
   rate: number
+  /** right channel of a stereo take (imported songs) */
+  right?: Float32Array
 }
 
 const pool = new Map<string, TakeData>()
 const loading = new Map<string, Promise<TakeData | null>>()
 
 /** Keeps a new take and writes it to disk straight away, so a crash can't lose it. */
-export function addTake(pcm: Float32Array, rate: number): string {
+export function addTake(pcm: Float32Array, rate: number, right?: Float32Array): string {
   const id = crypto.randomUUID()
-  pool.set(id, { pcm, rate })
-  void window.keyfall.takeWrite(id, encodeWavMono(pcm, rate))
+  pool.set(id, { pcm, rate, right })
+  void window.keyfall.takeWrite(id, encodeWavMono(pcm, rate, right))
   return id
 }
 
 /** Adds a take with a known id (from a project file), saving it for crash recovery too. */
 export function putTake(id: string, data: TakeData): void {
   pool.set(id, data)
-  void window.keyfall.takeWrite(id, encodeWavMono(data.pcm, data.rate))
+  void window.keyfall.takeWrite(id, encodeWavMono(data.pcm, data.rate, data.right))
 }
 
 export const getTake = (id: string): TakeData | undefined => pool.get(id)
@@ -48,19 +51,20 @@ export async function ensureTakes(ids: string[]): Promise<string[]> {
 
 export const takeWav = (id: string): Uint8Array | null => {
   const t = pool.get(id)
-  return t ? encodeWavMono(t.pcm, t.rate) : null
+  return t ? encodeWavMono(t.pcm, t.rate, t.right) : null
 }
 
 const buffers = new WeakMap<BaseAudioContext, WeakMap<Float32Array, AudioBuffer>>()
 
-/** An AudioBuffer for some PCM in a given context, cached per context. */
-export function toBuffer(ctx: BaseAudioContext, pcm: Float32Array, rate: number): AudioBuffer {
+/** An AudioBuffer for some PCM (stereo when `right` is given) in a given context, cached per context. */
+export function toBuffer(ctx: BaseAudioContext, pcm: Float32Array, rate: number, right?: Float32Array): AudioBuffer {
   let perCtx = buffers.get(ctx)
   if (!perCtx) buffers.set(ctx, (perCtx = new WeakMap()))
   let b = perCtx.get(pcm)
   if (!b) {
-    b = new AudioBuffer({ length: Math.max(1, pcm.length), numberOfChannels: 1, sampleRate: rate })
+    b = new AudioBuffer({ length: Math.max(1, pcm.length), numberOfChannels: right ? 2 : 1, sampleRate: rate })
     b.copyToChannel(pcm as Float32Array<ArrayBuffer>, 0)
+    if (right) b.copyToChannel(right as Float32Array<ArrayBuffer>, 1)
     perCtx.set(pcm, b)
   }
   return b

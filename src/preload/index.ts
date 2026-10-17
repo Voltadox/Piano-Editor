@@ -5,7 +5,7 @@ export interface LoadedFile {
   name: string
   data: Uint8Array
 }
-export type FilterKind = 'midi' | 'song' | 'keyfall' | 'soundfont' | 'wav' | 'mp3' | 'mp4' | 'webm' | 'image'
+export type FilterKind = 'midi' | 'song' | 'keyfall' | 'soundfont' | 'wav' | 'mp3' | 'mp4' | 'webm' | 'image' | 'audio'
 
 const api = {
   openFile: (kind: FilterKind): Promise<LoadedFile | null> => ipcRenderer.invoke('open-file', kind),

@@ -1,6 +1,8 @@
 import { engine } from '../audio/engine'
 import { beginTake, commitTake, liveTake, liveTrail, wallNow, type LiveNote } from '../audio/midiInput'
+import { stretchAudio } from '../audio/stretching'
 import { beginVocalCapture, finishVocalCapture, type VocalSession } from '../audio/vocalRecorder'
+import { clipAudio, processAll } from '../audio/vocals'
 import { songEndTick, tempoMap, ticksPerBar, ticksPerBeat } from '../model/song'
 import { savePref } from '../state/prefs'
 import { getState, useStore } from '../state/store'
@@ -68,6 +70,10 @@ export async function recordVocals(session: VocalSession): Promise<void> {
     stop()
     return
   }
+  if (st.rate !== 1) {
+    st.notify('Vocal takes record at full speed. Set the practice speed back to full speed first.', 'error')
+    return
+  }
   if (st.playing) stop()
   const { song, countIn } = getState()
   const map = tempoMap(song)
@@ -94,6 +100,43 @@ export async function recordVocals(session: VocalSession): Promise<void> {
   const preroll = (Math.max(1, countIn) * ticksPerBar(song) * 60) / (map.bpmAt(map.secToTick(from)) * song.ppq)
   await engine.play(preroll)
   getState().set({ playing: true })
+}
+
+/**
+ * Practice speed: notes and audio slow down without changing pitch. Each clip's audio is stretched
+ * once per speed (in a worker) before the speed takes effect.
+ */
+export async function setPlaybackRate(rate: number): Promise<void> {
+  const st = getState()
+  if (st.vocalRec) {
+    st.notify('Finish recording first.')
+    return
+  }
+  if (rate !== 1) {
+    const song = st.song
+    await processAll(song)
+    const jobs: { pcm: Float32Array; right?: Float32Array; sr: number }[] = []
+    for (const t of song.audioTracks)
+      for (const c of t.clips) {
+        const a = clipAudio(song, t, c)
+        if (a && !engine.hasStretch(a.pcm, rate) && !jobs.some((j) => j.pcm === a.pcm)) jobs.push({ pcm: a.pcm, right: a.right, sr: a.rate })
+      }
+    let done = 0
+    if (jobs.length) getState().set({ busy: { label: 'Slowing down the audio', progress: 0 } })
+    try {
+      await Promise.all(
+        jobs.map(async (j) => {
+          const out = await stretchAudio(j.right ? [j.pcm, j.right] : [j.pcm], rate, j.sr)
+          engine.putStretch(j.pcm, rate, out)
+          getState().set({ busy: { label: 'Slowing down the audio', progress: ++done / jobs.length } })
+        })
+      )
+    } finally {
+      getState().set({ busy: null })
+    }
+  }
+  engine.setRate(rate)
+  getState().set({ rate })
 }
 
 /** Beats left in the count-in, or 0 once it is over. */

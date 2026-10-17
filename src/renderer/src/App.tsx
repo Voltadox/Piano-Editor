@@ -30,6 +30,7 @@ import { Overview } from './ui/Overview'
 import { Banners, Busy, StatusBar, Toast } from './ui/Overlays'
 import { Drawer } from './ui/Drawer'
 import { Transport } from './ui/Transport'
+import { ChordMenu } from './ui/ChordMenu'
 import { ContextMenu } from './ui/ContextMenu'
 import { StudioPanel } from './ui/StudioPanel'
 import { VideoDialog } from './ui/VideoDialog'
@@ -218,6 +219,7 @@ export default function App(): React.JSX.Element {
       <StatusBar />
       <Toast />
       <ContextMenu />
+      <ChordMenu />
       <VideoDialog />
       <Busy />
       {dropping && <div className="drop-hint">Drop a MIDI file to open it, or a soundfont to load it</div>}

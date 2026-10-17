@@ -97,7 +97,7 @@ async function mixVocals(song: Song, left: Float32Array, right: Float32Array, le
   const map = tempoMap(song)
   for (const t of song.audioTracks) {
     if (!t.clips.length || !audioAudible(t, song)) continue
-    const chain = buildChain(ctx, t.preset, t.amount)
+    const chain = t.kind && t.kind !== 'vocal' ? (() => { const g = ctx.createGain(); return { input: g, output: g } })() : buildChain(ctx, t.preset, t.amount)
     const vol = ctx.createGain()
     vol.gain.value = t.volume
     const pan = ctx.createStereoPanner()
@@ -107,7 +107,7 @@ async function mixVocals(song: Song, left: Float32Array, right: Float32Array, le
       const a = clipAudio(song, t, c)
       if (!a) continue
       const src = ctx.createBufferSource()
-      src.buffer = toBuffer(ctx, a.pcm, a.rate)
+      src.buffer = toBuffer(ctx, a.pcm, a.rate, a.right)
       const g = ctx.createGain()
       const at = lead + map.tickToSec(c.tick)
       g.gain.setValueAtTime(0, at)

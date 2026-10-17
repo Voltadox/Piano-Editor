@@ -78,10 +78,12 @@ const keyOf = (takeId: string, s: TuneSettings): string =>
   [takeId, s.mode, s.speed.toFixed(2), s.transpose, s.detune, s.formant.toFixed(2), s.scale.join('.'), hash(s.guide)].join('|')
 
 /** The audio to play for a clip right now: its processed take if ready, else the raw take (and start processing). */
-export function clipAudio(song: Song, track: AudioTrack, clip: AudioClip): { pcm: Float32Array; rate: number; pitch?: Float32Array } | null {
+export function clipAudio(song: Song, track: AudioTrack, clip: AudioClip): { pcm: Float32Array; rate: number; right?: Float32Array; pitch?: Float32Array } | null {
   const takeId = clip.takes[clip.active]
   const take = takeId ? getTake(takeId) : undefined
   if (!take) return null
+  // references and stems play exactly as they are
+  if (track.kind && track.kind !== 'vocal') return take
   const settings = tuneSettings(song, track, clip, take)
   const key = keyOf(takeId, settings)
   const ready = done.get(key)
@@ -118,12 +120,14 @@ export function process(takeId: string, take: TakeData, settings: TuneSettings, 
 /** Processes every clip in the song and waits for all of it (used before exporting). */
 export async function processAll(song: Song): Promise<void> {
   const jobs: Promise<unknown>[] = []
-  for (const t of song.audioTracks)
+  for (const t of song.audioTracks) {
+    if (t.kind && t.kind !== 'vocal') continue
     for (const c of t.clips) {
       const takeId = c.takes[c.active]
       const take = takeId ? getTake(takeId) : undefined
       if (take) jobs.push(process(takeId, take, tuneSettings(song, t, c, take)))
     }
+  }
   await Promise.all(jobs)
 }
 
@@ -157,7 +161,7 @@ export function vocalLines(song: Song): { color: string; origin: number; from: n
   const map = tempoMap(song)
   const out: { color: string; origin: number; from: number; to: number; pitch: Float32Array }[] = []
   for (const t of song.audioTracks) {
-    if (t.muted) continue
+    if (t.muted || (t.kind && t.kind !== 'vocal')) continue
     for (const c of t.clips) {
       const pitch = clipPitch(song, t, c)
       if (!pitch) continue

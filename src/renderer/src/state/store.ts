@@ -12,7 +12,7 @@ export interface SoundfontEntry {
   name: string
 }
 
-export type DrawerTab = 'tracks' | 'mixer' | 'vocals' | 'beat' | 'sections'
+export type DrawerTab = 'reference' | 'tracks' | 'mixer' | 'vocals' | 'beat' | 'sections'
 
 /** A vocal recording in progress, for the UI. */
 export interface VocalRecording {
@@ -106,6 +106,10 @@ export interface EditorState {
   vocalVersion: number
   /** right-click menu for the selection, at a window position */
   contextMenu: { x: number; y: number } | null
+  /** the menu for changing a chord in the chord lane */
+  chordMenu: { x: number; y: number; index: number } | null
+  /** playback speed for practice (0.5..1); notes and audio slow down without changing pitch */
+  rate: number
   recovery: Recovery | null
   recent: RecentFile[]
 
@@ -177,6 +181,8 @@ export const useStore = create<EditorState>()((set, get) => ({
   videoOpen: false,
   vocalVersion: 0,
   contextMenu: null,
+  chordMenu: null,
+  rate: 1,
   recovery: null,
   recent: loadPref<RecentFile[]>('recent', []),
 

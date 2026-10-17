@@ -226,6 +226,13 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg3); paddin
 .menu .bg-thumb span { font-size: 12px; padding: 0 2px; }
 .menu .bg-thumb.on { border-color: var(--accent); }
 .menu-empty.credit { font-size: 11px; max-width: 300px; }
+.chord-menu { min-width: 280px; }
+.chord-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 2px 6px 6px; }
+.chord-grid.wide { grid-template-columns: repeat(6, 1fr); }
+.menu .chord-grid button { justify-content: center; padding: 6px 2px; border: 1px solid var(--line); background: var(--bg1); font-weight: 600; }
+.menu .chord-grid button.on { border-color: var(--accent); background: var(--accent-soft); }
+.num-out.strong { color: var(--text); font-weight: 600; min-width: 0; margin-right: auto; }
+.tabs button { padding: 6px 8px; }
 .drawer-hint { margin: 0; padding: 0 16px 10px; color: var(--muted); font-size: 12px; }
 .track-list { list-style: none; margin: 0; padding: 0 10px; display: grid; gap: 8px; align-content: start; }
 .track { padding: 9px; border-radius: 10px; background: var(--bg2); border: 1px solid transparent; display: grid; gap: 7px; }

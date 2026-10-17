@@ -29,11 +29,24 @@ export function scaleOf(key: Key | null): number[] {
 }
 
 /** Root, third and fifth (pitch classes) of the chord in each beat, carried over silent beats. */
-const timelineCache = new WeakMap<Track[], { tempos: Song['tempos']; chords: (number[] | null)[] }>()
+const timelineCache = new WeakMap<Track[], { tempos: Song['tempos']; lane: Song['chords']; chords: (number[] | null)[] }>()
 function chordTimeline(song: Song): (number[] | null)[] {
   const hit = timelineCache.get(song.tracks)
-  if (hit && hit.tempos === song.tempos) return hit.chords
+  if (hit && hit.tempos === song.tempos && hit.lane === song.chords) return hit.chords
   const tpb = ticksPerBeat(song)
+  // a chord lane (from a reference song, or edited) is the source of truth when there is one
+  if (song.chords.length) {
+    const end = Math.max(songEndTick(song), song.chords[song.chords.length - 1].tick + tpb * 8)
+    const chords: (number[] | null)[] = []
+    let i = 0
+    for (let b = 0; b * tpb <= end; b++) {
+      while (i + 1 < song.chords.length && song.chords[i + 1].tick <= b * tpb) i++
+      const c = song.chords[i]
+      chords.push(c && c.tick <= b * tpb && c.root >= 0 ? [c.root, (c.root + (c.minor ? 3 : 4)) % 12, (c.root + 7) % 12] : null)
+    }
+    timelineCache.set(song.tracks, { tempos: song.tempos, lane: song.chords, chords })
+    return chords
+  }
   const beats = Math.ceil(songEndTick(song) / tpb) + 1
   const scale = scaleOf(songKey(song))
   const chords: (number[] | null)[] = []
@@ -58,7 +71,7 @@ function chordTimeline(song: Song): (number[] | null)[] {
     prev = triad ?? prev
     chords.push(prev)
   }
-  timelineCache.set(song.tracks, { tempos: song.tempos, chords })
+  timelineCache.set(song.tracks, { tempos: song.tempos, lane: song.chords, chords })
   return chords
 }
 

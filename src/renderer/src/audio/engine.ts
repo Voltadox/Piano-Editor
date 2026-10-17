@@ -13,6 +13,15 @@ const START_DELAY = 0.04
 
 type Listener = () => void
 
+/** Vocals get their preset's effects; references and stems pass straight through. */
+function chainFor(ctx: BaseAudioContext, t: AudioTrack): Chain {
+  if (t.kind && t.kind !== 'vocal') {
+    const g = ctx.createGain()
+    return { input: g, output: g }
+  }
+  return buildChain(ctx, t.preset, t.amount)
+}
+
 /** One audio track's path to the speakers: clip sum, effects chain, level and pan. */
 interface Strip {
   input: GainNode
@@ -65,6 +74,10 @@ class Engine {
   /** Clock mapping from before the latest loop jump, used until the (pre-queued) jump is reached. */
   private prev: { startCtx: number; startPos: number } | null = null
   private clicks: OscillatorNode[] = []
+  /** playback speed: 1 is normal; below 1 slows everything without changing pitch */
+  rate = 1
+  /** time-stretched copies of clip audio for the current practice speed */
+  private stretched = new WeakMap<Float32Array, { rate: number; pcm: Float32Array; right?: Float32Array }>()
   private strips = new Map<number, Strip>()
   private voices: AudioBufferSourceNode[] = []
   /** Told the audio time at which a song time plays: at every start and every loop jump (for recording). */
@@ -142,8 +155,8 @@ class Engine {
   time(): number {
     if (!this.playing || !this.ctx) return this.pos
     const now = this.ctx.currentTime
-    if (this.prev && now < this.startCtx) return this.prev.startPos + now - this.prev.startCtx
-    return Math.max(this.startPos, this.startPos + now - this.startCtx)
+    if (this.prev && now < this.startCtx) return this.prev.startPos + (now - this.prev.startCtx) * this.rate
+    return Math.max(this.startPos, this.startPos + (now - this.startCtx) * this.rate)
   }
 
   get loopRegion(): { start: number; end: number } | null {
@@ -223,14 +236,32 @@ class Engine {
   }
 
   private ctxAt(songTime: number): number {
-    return this.startCtx + (songTime - this.startPos)
+    return this.startCtx + (songTime - this.startPos) / this.rate
+  }
+
+  /** Practice speed. Notes simply play slower; audio clips switch to their stretched copies. */
+  setRate(rate: number): void {
+    if (rate === this.rate) return
+    if (this.playing) {
+      this.pause()
+      this.rate = rate
+      void this.play()
+    } else this.rate = rate
+  }
+
+  hasStretch(pcm: Float32Array, rate: number): boolean {
+    return this.stretched.get(pcm)?.rate === rate
+  }
+
+  putStretch(pcm: Float32Array, rate: number, out: Float32Array[]): void {
+    this.stretched.set(pcm, { rate, pcm: out[0], right: out[1] })
   }
 
   private tick(): void {
     if (!this.playing || !this.synth || !this.ctx) return
     const ctx = this.ctx
     if (this.prev && ctx.currentTime >= this.startCtx) this.prev = null
-    const horizon = (): number => this.startPos + ctx.currentTime + LOOKAHEAD - this.startCtx
+    const horizon = (): number => this.startPos + (ctx.currentTime + LOOKAHEAD - this.startCtx) * this.rate
     let until = horizon()
     const loop = this.loop
     // queue the jump back to the loop start ahead of time so it lands exactly on the beat
@@ -376,7 +407,7 @@ class Engine {
     let s = this.strips.get(t.id)
     if (!s) {
       const input = ctx.createGain()
-      const chain = buildChain(ctx, t.preset, t.amount)
+      const chain = chainFor(ctx, t)
       const vol = ctx.createGain()
       const pan = ctx.createStereoPanner()
       vol.gain.value = this.song && audioAudible(t, this.song) ? t.volume : 0
@@ -385,11 +416,11 @@ class Engine {
       chain.output.connect(vol).connect(pan).connect(this.master!)
       s = { input, chain, preset: t.preset, amount: t.amount, vol, pan }
       this.strips.set(t.id, s)
-    } else if (s.preset !== t.preset || Math.abs(s.amount - t.amount) > 0.001) {
+    } else if (t.kind === 'vocal' || !t.kind ? s.preset !== t.preset || Math.abs(s.amount - t.amount) > 0.001 : false) {
       // swap the chain between the clip input and the fader; playing clips carry on through it
       s.input.disconnect()
       s.chain.output.disconnect()
-      s.chain = buildChain(ctx, t.preset, t.amount)
+      s.chain = chainFor(ctx, t)
       s.input.connect(s.chain.input)
       s.chain.output.connect(s.vol)
       s.preset = t.preset
@@ -440,23 +471,33 @@ class Engine {
     const ctx = this.ctx
     const audio = this.song && ctx ? clipAudio(this.song, t, c) : null
     if (!ctx || !audio) return
+    const r = this.rate
     const when = Math.max(ctx.currentTime, at)
-    const skip = into + (when - at)
+    // song seconds skipped into the clip, and song seconds left to play
+    const skip = into + (when - at) * r
     const dur = c.duration - skip
     if (dur <= 0.01) return
+    let data: { pcm: Float32Array; right?: Float32Array } = audio
+    if (r !== 1) {
+      // slowed down: play the stretched copy (prepared when the speed was chosen)
+      const s = this.stretched.get(audio.pcm)
+      if (!s || s.rate !== r) return
+      data = s
+    }
     const src = ctx.createBufferSource()
-    src.buffer = toBuffer(ctx, audio.pcm, audio.rate)
+    src.buffer = toBuffer(ctx, data.pcm, audio.rate, data.right)
     const g = ctx.createGain()
-    // fades, measured from the clip's own start and end
-    const fadeIn = Math.max(0.005, c.fadeIn)
-    const fadeOut = Math.max(0.005, c.fadeOut)
-    g.gain.setValueAtTime(Math.min(1, skip / fadeIn), when)
-    if (skip < fadeIn) g.gain.linearRampToValueAtTime(1, when + fadeIn - skip)
-    const outAt = when + Math.max(0, dur - fadeOut)
-    g.gain.setValueAtTime(1, outAt)
-    g.gain.linearRampToValueAtTime(0, when + dur)
+    // fades, measured from the clip's own start and end, in real seconds
+    const fadeIn = Math.max(0.005, c.fadeIn) / r
+    const fadeOut = Math.max(0.005, c.fadeOut) / r
+    const realSkip = skip / r
+    const realDur = dur / r
+    g.gain.setValueAtTime(Math.min(1, realSkip / fadeIn), when)
+    if (realSkip < fadeIn) g.gain.linearRampToValueAtTime(1, when + fadeIn - realSkip)
+    g.gain.setValueAtTime(1, when + Math.max(0, realDur - fadeOut))
+    g.gain.linearRampToValueAtTime(0, when + realDur)
     src.connect(g).connect(this.strip(t).input)
-    src.start(when, c.offset + skip, dur)
+    src.start(when, (c.offset + skip) / r, realDur)
     this.voices.push(src)
     src.onended = () => (this.voices = this.voices.filter((v) => v !== src))
   }

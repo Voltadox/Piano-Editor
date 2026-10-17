@@ -1,12 +1,14 @@
 import { useStore, type DrawerTab } from '../state/store'
 import { BeatPanel } from './BeatPanel'
 import { MixerPanel } from './MixerPanel'
+import { ReferencePanel } from './ReferencePanel'
 import { SectionsPanel } from './SectionsPanel'
 import { TracksPanel } from './TrackDrawer'
 import { VocalsPanel } from './VocalsPanel'
 import * as I from './icons'
 
 const TABS: { id: DrawerTab; label: string }[] = [
+  { id: 'reference', label: 'Reference' },
   { id: 'tracks', label: 'Tracks' },
   { id: 'mixer', label: 'Mixer' },
   { id: 'vocals', label: 'Vocals' },
@@ -32,6 +34,7 @@ export function Drawer(): React.JSX.Element {
         <button className="icon-btn" title="Close (T)" onClick={() => set({ drawerOpen: false })}><I.IconClose size={16} /></button>
       </div>
       <div className="drawer-body">
+        {open && tab === 'reference' && <ReferencePanel />}
         {open && tab === 'tracks' && <TracksPanel />}
         {open && tab === 'mixer' && <MixerPanel />}
         {open && tab === 'vocals' && <VocalsPanel />}

@@ -16,9 +16,10 @@ const FILTERS: Record<string, FileFilter[]> = {
   mp3: [{ name: 'MP3 audio', extensions: ['mp3'] }],
   mp4: [{ name: 'MP4 video', extensions: ['mp4'] }],
   webm: [{ name: 'WebM video', extensions: ['webm'] }],
-  image: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'] }]
+  image: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'] }],
+  audio: [{ name: 'Songs', extensions: ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus'] }]
 }
-type FilterKind = 'midi' | 'song' | 'keyfall' | 'soundfont' | 'wav' | 'mp3' | 'mp4' | 'webm' | 'image'
+type FilterKind = 'midi' | 'song' | 'keyfall' | 'soundfont' | 'wav' | 'mp3' | 'mp4' | 'webm' | 'image' | 'audio'
 
 /** Crash-recovery copy of the open song, written by the renderer while there are unsaved changes. */
 const autosavePath = (): string => join(app.getPath('userData'), 'autosave.json')

@@ -62,7 +62,8 @@ export function buildEvents(song: Song): EventList {
       const end = times.end[i]
       notes.set(n.id, { ch, pitch: n.pitch, start, end, audible })
       duration = Math.max(duration, end)
-      if (!audible) return
+      // silent tracks (reference notes to sing) are shown but never played
+      if (!audible || t.silent) return
       events.push({ time: start, kind: ON, ch, a: n.pitch, b: n.vel, id: n.id })
       events.push({ time: end, kind: OFF, ch, a: n.pitch, b: 0, id: n.id })
     })

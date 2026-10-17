@@ -5,8 +5,9 @@ import { addNote, deleteNotes, mapNotes } from '../state/edit'
 import { getState } from '../state/store'
 import { pressKey, releaseKey } from '../audio/midiInput'
 import { vocalLines } from '../audio/vocals'
+import { chordLabel } from '../actions/reference'
 import { countdown, viewClock } from '../actions/transport'
-import { drawScene, hitNote, keyLayout, pianoKeyLength, type Scene } from './draw'
+import { chordPillAt, drawScene, hitNote, keyLayout, pianoKeyLength, type Scene } from './draw'
 
 type Box = { x0: number; y0: number; x1: number; y1: number }
 
@@ -53,6 +54,7 @@ export function FallView(): React.JSX.Element {
       hints: st.studio && st.studioChords ? st.studioHint : null,
       vocals: clock.songVisible ? vocalLines(st.song) : undefined,
       sections: st.song.sections,
+      chordMarks: clock.songVisible ? st.song.chords.map((c, index) => ({ sec: map.tickToSec(c.tick), label: chordLabel(c), index })) : undefined,
       countdown: countdown(),
       theme: st.theme,
       bgImage: st.bgImage
@@ -151,6 +153,11 @@ export function FallView(): React.JSX.Element {
       drag.current = { kind: 'key', pitch, ch: 0 }
       return
     }
+    const chord = e.button === 0 ? chordPillAt(s, x, y) : null
+    if (chord !== null) {
+      st.set({ chordMenu: { x: e.clientX, y: e.clientY, index: chord } })
+      return
+    }
     // the view runs upward while recording and in Studio mode; note editing waits until it stops
     if (s.rising) return
 
@@ -211,7 +218,7 @@ export function FallView(): React.JSX.Element {
       const hit = s.rising ? null : hitNote(s, x, y)
       hoverId.current = hit?.noteId
       const c = canvasRef.current!
-      c.style.cursor = hit ? (hit.part === 'body' ? 'grab' : 'ns-resize') : st.tool === 'draw' ? 'crosshair' : 'default'
+      c.style.cursor = chordPillAt(s, x, y) !== null ? 'pointer' : hit ? (hit.part === 'body' ? 'grab' : 'ns-resize') : st.tool === 'draw' ? 'crosshair' : 'default'
       return
     }
     const g = grid()

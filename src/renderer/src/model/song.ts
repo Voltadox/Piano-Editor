@@ -41,6 +41,10 @@ export interface Track {
   reverb: number
   /** a drum-machine track: its notes are generated from this */
   beat?: Beat
+  /** a track Keyfall writes for you: the chord pad, or reference notes to sing */
+  role?: 'chords' | 'melody' | 'harmony'
+  /** shown on the stage but not played (reference notes to sing) */
+  silent?: boolean
 }
 
 export interface Tempo {
@@ -53,6 +57,13 @@ export interface Section {
   name: string
   /** first bar (0-based); a section runs until the next one starts */
   bar: number
+}
+
+/** A chord from the chord lane, in effect from its tick to the next one. Root -1 is no chord. */
+export interface ChordMark {
+  tick: number
+  root: number
+  minor: boolean
 }
 
 export interface SongKey {
@@ -69,6 +80,20 @@ export interface Song {
   sections: Section[]
   /** set by the user; null means detect it from the notes */
   key: SongKey | null
+  /** the chord lane (from a reference song, or edited by hand); empty means none */
+  chords: ChordMark[]
+  /** what Keyfall heard in an imported reference song */
+  reference?: ReferenceInfo
+}
+
+export interface ReferenceInfo {
+  file: string
+  /** the audio track holding the song */
+  trackId: number
+  /** drum hits heard in the song, in song seconds (for copying its groove) */
+  drums: { kick: number[]; snare: number[]; hat: number[] }
+  /** loudness per bar, 0..1, for fitting a beat to quiet and busy parts */
+  barEnergy: number[]
 }
 
 export const PALETTE = [
@@ -119,19 +144,20 @@ export function normalizeSong(song: Song): Song {
     tracks: song.tracks.map((t) => ({ ...t, bank: t.bank ?? 0, volume: t.volume ?? 0.8, pan: t.pan ?? 0, reverb: t.reverb ?? 0.3, ccs: t.ccs ?? [], bends: t.bends ?? [] })),
     audioTracks: song.audioTracks ?? [],
     sections: song.sections ?? [],
-    key: song.key ?? null
+    key: song.key ?? null,
+    chords: song.chords ?? []
   }
 }
 
 export function emptySong(): Song {
-  const song: Song = { ppq: 480, tempos: [{ tick: 0, bpm: 120 }], timeSig: [4, 4], tracks: [], audioTracks: [], sections: [], key: null }
+  const song: Song = { ppq: 480, tempos: [{ tick: 0, bpm: 120 }], timeSig: [4, 4], tracks: [], audioTracks: [], sections: [], key: null, chords: [] }
   song.tracks.push(newTrack(song, 'Piano'))
   return song
 }
 
 /** A short two-hand loop so the editor opens with something to look at. */
 export function demoSong(): Song {
-  const song: Song = { ppq: 480, tempos: [{ tick: 0, bpm: 100 }], timeSig: [4, 4], tracks: [], audioTracks: [], sections: [], key: null }
+  const song: Song = { ppq: 480, tempos: [{ tick: 0, bpm: 100 }], timeSig: [4, 4], tracks: [], audioTracks: [], sections: [], key: null, chords: [] }
   const left = newTrack(song, 'Left hand')
   song.tracks.push(left)
   const right = newTrack(song, 'Right hand')

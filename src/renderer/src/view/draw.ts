@@ -102,6 +102,8 @@ export interface Scene {
   vocals?: { color: string; origin: number; from: number; to: number; pitch: Float32Array }[]
   /** section names shown at their bar lines */
   sections?: { bar: number; name: string }[]
+  /** the chord lane: chord names at the time each chord starts */
+  chordMarks?: { sec: number; label: string; index: number }[]
   /** pitches to mark on the keyboard (a Studio chord suggestion) */
   hints?: number[] | null
   theme?: Theme
@@ -272,13 +274,16 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
         if (name) {
           ctx.font = `600 12px "Segoe UI", system-ui, sans-serif`
           ctx.fillStyle = hexA(theme.accent, 0.9)
-          ctx.fillText(name, 30, y - 2)
+          ctx.textAlign = 'right'
+          ctx.fillText(name, W - 8, y - 2)
+          ctx.textAlign = 'left'
         }
       }
     }
   }
 
   if (s.loop && !s.presentation) drawLoop(ctx, s.loop, W, line, yOf, theme.accent)
+  if (s.chordMarks?.length && !s.presentation) drawChordLane(ctx, s.chordMarks, line, yOf, theme.accent)
 
   // notes
   const lit = new Map<number, { color: string; start: number }>()
@@ -412,6 +417,41 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
     ctx.fillRect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0))
     ctx.strokeRect(Math.min(x0, x1) + 0.5, Math.min(y0, y1) + 0.5, Math.abs(x1 - x0), Math.abs(y1 - y0))
   }
+}
+
+export const CHORD_PILL = { x: 30, w: 50, h: 18 }
+
+/** Chord names on the left edge, each just above the line where its chord starts. */
+function drawChordLane(ctx: CanvasRenderingContext2D, marks: NonNullable<Scene['chordMarks']>, line: number, yOf: (sec: number) => number, accent: string): void {
+  ctx.font = '600 12px "Segoe UI", system-ui, sans-serif'
+  ctx.textBaseline = 'middle'
+  ctx.textAlign = 'center'
+  for (const m of marks) {
+    const y = yOf(m.sec)
+    if (y < -CHORD_PILL.h || y > line + CHORD_PILL.h) continue
+    const top = y - CHORD_PILL.h - 2
+    ctx.fillStyle = 'rgba(10,12,20,0.78)'
+    roundRect(ctx, CHORD_PILL.x, top, CHORD_PILL.w, CHORD_PILL.h, 6)
+    ctx.fill()
+    ctx.strokeStyle = hexA(accent, 0.7)
+    ctx.lineWidth = 1
+    ctx.stroke()
+    ctx.fillStyle = '#e4e7f2'
+    ctx.fillText(m.label, CHORD_PILL.x + CHORD_PILL.w / 2, top + CHORD_PILL.h / 2 + 1)
+  }
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'bottom'
+}
+
+/** Which chord pill (by chord index) is under a point, if any. */
+export function chordPillAt(s: Scene, px: number, py: number): number | null {
+  if (!s.chordMarks || px < CHORD_PILL.x || px > CHORD_PILL.x + CHORD_PILL.w) return null
+  const { yOf } = timeAxis(s)
+  for (const m of s.chordMarks) {
+    const y = yOf(m.sec)
+    if (py >= y - CHORD_PILL.h - 2 && py <= y - 2) return m.index
+  }
+  return null
 }
 
 /** A sung melody as a glowing line over the keys it sings (fractional pitches fall between keys). */

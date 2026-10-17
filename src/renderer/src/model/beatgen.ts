@@ -1,5 +1,5 @@
 import { stepsPerBar, type Beat, type Pattern } from './beat'
-import { DRUM_CHANNEL, newId, songEndTick, ticksPerBar, type Song } from './song'
+import { DRUM_CHANNEL, newId, songEndTick, tempoMap, ticksPerBar, type Song } from './song'
 
 const KICK = 36
 const RIM = 37
@@ -82,8 +82,38 @@ interface BarFeel {
   density: number
 }
 
+/**
+ * What the reference song does in each bar: kicks stand in for bass notes, hi-hat count for how
+ * busy it is, and near-silent bars come out empty so the beat drops out there too.
+ */
+function referenceFeel(song: Song, bars: number): BarFeel[] {
+  const ref = song.reference!
+  const map = tempoMap(song)
+  const bar = ticksPerBar(song)
+  const steps = stepsPerBar(song)
+  const feel: BarFeel[] = Array.from({ length: bars }, () => ({ bass: new Array(steps).fill(false), density: 0 }))
+  const place = (sec: number): { b: number; s: number } => {
+    const t = map.secToTick(sec)
+    return { b: Math.floor(t / bar), s: Math.round(((t % bar) / bar) * steps) % steps }
+  }
+  for (const sec of ref.drums.kick) {
+    const { b, s } = place(sec)
+    if (b < bars) feel[b].bass[s] = true
+  }
+  for (const sec of ref.drums.hat) {
+    const { b } = place(sec)
+    if (b < bars) feel[b].density += 1
+  }
+  feel.forEach((f, b) => {
+    const energy = ref.barEnergy[b] ?? 0.5
+    f.density = energy < 0.08 ? 0 : Math.max(2, f.density + 4 * energy)
+  })
+  return feel
+}
+
 /** What the existing music does in each bar: where the bass lands and how busy it is. */
 function analyse(song: Song, bars: number): BarFeel[] {
+  if (song.reference) return referenceFeel(song, bars)
   const bar = ticksPerBar(song)
   const steps = stepsPerBar(song)
   const feel: BarFeel[] = Array.from({ length: bars }, () => ({ bass: new Array(steps).fill(false), density: 0 }))
@@ -158,7 +188,8 @@ export function generateBeat(song: Song, styleId: string, seed: number): Beat {
   const style = STYLES.find((s) => s.id === styleId) ?? STYLES[0]
   const rand = rng(seed)
   const steps = stepsPerBar(song)
-  const used = Math.ceil(songEndTick(song) / ticksPerBar(song))
+  const refEnd = song.reference ? song.reference.barEnergy.length : 0
+  const used = Math.max(refEnd, Math.ceil(songEndTick(song) / ticksPerBar(song)))
   const bars = Math.max(8, Math.ceil(used / 4) * 4)
   const feel = analyse(song, bars)
 
@@ -215,6 +246,57 @@ export function generateBeat(song: Song, styleId: string, seed: number): Beat {
     else out.push(patternFor(g, 'groove'))
   }
   return { patterns, bars: out, swing: style.swing, style: style.id }
+}
+
+/**
+ * The reference song's own drum part as editable patterns: its kick, snare and hat hits snapped
+ * to sixteenths, bar by bar, with each distinct bar becoming one pattern (the eight most common,
+ * the rest mapped to the closest of those).
+ */
+export function grooveFromReference(song: Song): Beat | null {
+  const ref = song.reference
+  if (!ref) return null
+  const map = tempoMap(song)
+  const bar = ticksPerBar(song)
+  const steps = stepsPerBar(song)
+  const stepTicks = bar / steps
+  const bars = ref.barEnergy.length
+  const grids: Record<number, number[]>[] = Array.from({ length: bars }, () => ({ [KICK]: new Array(steps).fill(0), [SNARE]: new Array(steps).fill(0), [HAT]: new Array(steps).fill(0) }))
+  const put = (secs: number[], pitch: number, vel: number): void => {
+    for (const sec of secs) {
+      const t = map.secToTick(sec)
+      const b = Math.floor(t / bar)
+      const pos = (t - b * bar) / stepTicks
+      const s = Math.round(pos)
+      // hits far from any sixteenth are flams or noise
+      if (b < 0 || b >= bars || Math.abs(pos - s) > 0.35) continue
+      grids[b][pitch][s % steps] = vel
+    }
+  }
+  put(ref.drums.kick, KICK, 105)
+  put(ref.drums.snare, SNARE, 98)
+  put(ref.drums.hat, HAT, 70)
+  const sig = (g: Record<number, number[]>): string => [KICK, SNARE, HAT].map((p) => g[p].map((v) => (v ? 1 : 0)).join('')).join('|')
+  const counts = new Map<string, { n: number; grid: Record<number, number[]> }>()
+  for (const g of grids) {
+    const k = sig(g)
+    if (!/1/.test(k)) continue
+    const c = counts.get(k)
+    if (c) c.n++
+    else counts.set(k, { n: 1, grid: g })
+  }
+  const top = [...counts.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 8)
+  if (!top.length) return null
+  const patterns: Pattern[] = top.map(([, v], i) => ({ id: newId(), name: `Groove ${String.fromCharCode(65 + i)}`, hits: v.grid }))
+  const distance = (a: string, b: string): number => [...a].reduce((n, ch, i) => n + (ch === b[i] ? 0 : 1), 0)
+  const barsOut = grids.map((g) => {
+    const k = sig(g)
+    if (!/1/.test(k)) return null
+    let best = 0
+    top.forEach(([tk], i) => (distance(tk, k) < distance(top[best][0], k) ? (best = i) : 0))
+    return patterns[best].id
+  })
+  return { patterns, bars: barsOut, swing: 0, style: 'reference' }
 }
 
 /** A single starter pattern for a style, without following the song. */

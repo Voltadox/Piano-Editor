@@ -2,7 +2,7 @@ import { engine } from './audio/engine'
 import { DEFAULT_VIDEO, exportAudio, exportVideo } from './actions/export'
 import { applyBackupFont, loadMidiBytes, loadSoundfontBytes } from './actions/files'
 import { SoundBankLoader, SpessaSynthProcessor } from 'spessasynth_core'
-import { setLoop, toggleMetronome, toggleRecord, toggleStudio } from './actions/transport'
+import { setLoop, setPlaybackRate, toggleMetronome, toggleRecord, toggleStudio } from './actions/transport'
 import { pressKey, releaseKey, shapeVelocity } from './audio/midiInput'
 import { detectKey, keyName, recognizeChord, suggestChords } from './model/harmony'
 import { splitHands } from './model/hands'
@@ -12,7 +12,8 @@ import { detectPitch, pitchShifts, psola } from './audio/pitch'
 import { addTake, getTake } from './audio/takes'
 import { closeMic, loadRecorderWorklet, micLevel, openMic } from './audio/vocalRecorder'
 import { processAll } from './audio/vocals'
-import { addSection, duplicateSection, generateDrums, moveSection } from './state/arrange'
+import { addSection, copyReferenceGroove, duplicateSection, generateDrums, moveSection } from './state/arrange'
+import { chordLabel, importReferenceAudio, keyLabel, setChordAt } from './actions/reference'
 import { addAudioTrack, addRecordedPasses } from './state/vocalEdit'
 import { selectAll, selectionSustained, setSustain } from './state/edit'
 import { writeMidiFile } from './model/midiio'
@@ -254,6 +255,93 @@ export async function runSelftest(arg: string): Promise<void> {
     await wait(600)
     await window.keyfall.selftestCapture(`${outDir}/window-mixer.png`)
     getState().set({ drawerOpen: false })
+
+    // reference mode: a synthetic 96 BPM song (Am F C G verse, F G Am Am / F G C C chorus, verse),
+    // drums on 1-3 / 2-4 / eighths, with a 0.37 s lead-in, imported into a new song
+    {
+      getState().loadSong(emptySong(), 'Reference test', null)
+      const sr = 48000
+      const beatSec = 60 / 96
+      const lead = 0.37
+      const plan = [0, 1, 2, 3, 0, 1, 2, 3, 1, 3, 0, 0, 1, 3, 2, 2, 0, 1, 2, 3, 0, 1, 2, 3]
+      const triads = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]]
+      const n = Math.ceil((lead + plan.length * 4 * beatSec + 1) * sr)
+      const x = new Float32Array(n)
+      let seed = 7
+      const rnd = (): number => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) * 2 - 1
+      const hz = (m: number): number => 440 * Math.pow(2, (m - 69) / 12)
+      plan.forEach((p, b) => {
+        const t0 = lead + b * 4 * beatSec
+        const s0 = Math.floor(t0 * sr)
+        for (let i = 0; i < Math.floor(4 * beatSec * sr); i++) {
+          let v = 0
+          for (const m of triads[p]) for (let h = 1; h <= 4; h++) v += Math.sin((2 * Math.PI * hz(m) * h * i) / sr) / (h * 3)
+          v += 0.8 * Math.sin((2 * Math.PI * hz(triads[p][0] - 24) * i) / sr)
+          x[s0 + i] += 0.05 * v
+        }
+        for (let q = 0; q < 8; q++) {
+          const s = Math.floor((t0 + (q * beatSec) / 2) * sr)
+          // hats: noise through a resonator ringing around 8 kHz, like a real closed hi-hat
+          const wr = (2 * Math.PI * 8000) / sr
+          const rr = 0.9
+          let y1 = 0
+          let y2 = 0
+          for (let i = 0; i < 1700; i++) {
+            const y = 2 * rr * Math.cos(wr) * y1 - rr * rr * y2 + (1 - rr) * rnd()
+            y2 = y1
+            y1 = y
+            x[s + i] += 0.35 * y * Math.exp(-i / 320)
+          }
+          if (q % 2) continue
+          if (q === 0 || q === 4) for (let i = 0; i < 13000; i++) x[s + i] += 0.6 * Math.sin((2 * Math.PI * (55 + 80 * Math.exp(-i / 870)) * i) / sr) * Math.exp(-i / 5400)
+          else for (let i = 0; i < 11000; i++) x[s + i] += 0.25 * rnd() * Math.exp(-i / 2600)
+        }
+      })
+      const buf = new AudioBuffer({ length: n, numberOfChannels: 2, sampleRate: sr })
+      buf.copyToChannel(x, 0)
+      buf.copyToChannel(x, 1)
+      await importReferenceAudio('synthetic-96bpm.wav', buf)
+      const song = getState().song
+      const map = tempoMap(song)
+      const ref = song.audioTracks.find((t) => t.kind === 'reference')!
+      const clip = ref.clips[0]
+      // where does the audio's first downbeat (0.37 s into the file) land on the song's grid?
+      const audioToSong = (sec: number): number => map.tickToSec(clip.tick) - clip.offset + sec
+      const downTick = map.secToTick(audioToSong(lead))
+      const barTicks = ticksPerBar(song)
+      log('reference: tempo', song.tempos.map((t) => t.bpm.toFixed(2)).join(','), '· first downbeat at bar', (downTick / barTicks + 1).toFixed(3), '· bar 10 lands at', ((map.secToTick(audioToSong(lead + 9 * 4 * beatSec)) / barTicks) + 1).toFixed(3))
+      const names = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
+      log('reference: key', song.key && keyLabel(song.key.tonic, song.key.minor), '· chords', song.chords.slice(0, 14).map((c) => `${c.root < 0 ? 'N' : names[c.root] + (c.minor ? 'm' : '')}@${(c.tick / barTicks + 1).toFixed(2)}`).join(' '))
+      log('reference: sections', song.sections.map((s) => `${s.name}@${s.bar + 1}`).join(' '), '· chord pad notes', song.tracks.find((t) => t.role === 'chords')?.notes.length)
+      generateDrums('lofi', 3)
+      const beat1 = getState().song.tracks.find((t) => t.beat)!.beat!
+      copyReferenceGroove()
+      const beat2 = getState().song.tracks.find((t) => t.beat)!.beat!
+      const g = beat2.patterns[0]
+      log('reference: matching beat', beat1.patterns.length, 'patterns over', beat1.bars.length, 'bars · copied groove', beat2.patterns.length, 'patterns; first:', [36, 38, 42].map((p) => g.hits[p].map((v) => (v ? 'x' : '.')).join('')).join(' | '))
+      const padBefore = getState().song.tracks.find((t) => t.role === 'chords')!.notes.length
+      setChordAt(0, { root: 2, minor: true })
+      log('reference: chord 1 changed to', chordLabel(getState().song.chords[0]), '· pad notes', padBefore, '->', getState().song.tracks.find((t) => t.role === 'chords')!.notes.length)
+      setChordAt(0, { root: 9, minor: true })
+      // practice speed: 75% should advance the playhead three-quarters as fast
+      await setPlaybackRate(0.75)
+      engine.seek(5)
+      await engine.play()
+      getState().set({ playing: true })
+      await wait(2000)
+      const moved = engine.time() - 5
+      engine.pause()
+      getState().set({ playing: false })
+      await setPlaybackRate(1)
+      log('practice speed 75%: playhead moved', moved.toFixed(2), 's in 2 s of real time')
+      getState().set({ drawerOpen: true, drawerTab: 'reference' })
+      engine.seek(9)
+      await wait(900)
+      await window.keyfall.selftestCapture(`${outDir}/window-reference-a.png`)
+      await wait(900)
+      await window.keyfall.selftestCapture(`${outDir}/window-reference.png`)
+      getState().set({ drawerOpen: false })
+    }
 
     // recording into a brand-new, empty song must keep running (with its count-in) until stopped
     getState().loadSong(emptySong(), 'Untitled', null)

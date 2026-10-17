@@ -1,0 +1,139 @@
+import { useState } from 'react'
+import { engine } from '../audio/engine'
+import { addChordAt, importReference, keyLabel, referenceTrack, scaleTempo } from '../actions/reference'
+import { setPlaybackRate } from '../actions/transport'
+import { STYLES } from '../model/beatgen'
+import { tempoMap } from '../model/song'
+import { copyReferenceGroove, generateDrums } from '../state/arrange'
+import { setSongKey, updateTrack } from '../state/edit'
+import { getState, useStore } from '../state/store'
+import { updateAudioTrack } from '../state/vocalEdit'
+import { Field, Slider } from './controls'
+
+const NOTE = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
+const SPEEDS = [1, 0.9, 0.8, 0.75, 0.7, 0.6, 0.5]
+
+/** The Reference tab: bring in a finished song and build on what Keyfall hears in it. */
+export function ReferencePanel(): React.JSX.Element {
+  const song = useStore((s) => s.song)
+  const rate = useStore((s) => s.rate)
+  const ref = song.reference
+  const track = referenceTrack(song)
+  const pad = song.tracks.find((t) => t.role === 'chords')
+  const [style, setStyle] = useState('lofi')
+  const bpm = song.tempos[0]?.bpm ?? 120
+  const chordCount = song.chords.filter((c) => c.root >= 0).length
+
+  if (!ref || !track) {
+    return (
+      <section className="psection">
+        <div className="ptitle">Bring in a song</div>
+        <p className="drawer-hint tight">
+          Open one of your demos (MP3, WAV, M4A…). Keyfall listens for its tempo, bar lines, key, chords, sections and drums, then lines the song up with it: chords
+          appear on the left of the stage, and the beat, harmony guides and chord suggestions all follow it.
+        </p>
+        <button className="btn primary" onClick={() => void importReference()}>Open a song…</button>
+        <p className="drawer-hint tight">Steady songs work best. Takes a few seconds; chords and sections are suggestions you can change.</p>
+      </section>
+    )
+  }
+
+  return (
+    <>
+      <section className="psection">
+        <div className="ptitle" title={ref.file}>{ref.file}</div>
+        <Field label="Level">
+          <Slider id="ref-vol" value={track.volume} min={0} max={1} onChange={(volume) => updateAudioTrack(track.id, { volume })} />
+          <button className={`ms${track.muted ? ' on mute' : ''}`} title="Mute the reference" onClick={() => updateAudioTrack(track.id, { muted: !track.muted })}>M</button>
+        </Field>
+        <Field label="Tempo">
+          <span className="num-out strong">{bpm.toFixed(1)} BPM{song.tempos.length > 1 ? '*' : ''}</span>
+          <button className="btn small-btn" title="If bars are twice as long as they should be" onClick={() => scaleTempo(2)}>×2</button>
+          <button className="btn small-btn" title="If bars are half as long as they should be" onClick={() => scaleTempo(0.5)}>÷2</button>
+        </Field>
+        {song.tempos.length > 1 && <p className="drawer-hint tight">* The song drifts a little, so the bar lines follow it bar by bar.</p>}
+        <Field label="Key">
+          <select
+            id="ref-key"
+            className="select grow"
+            value={song.key ? `${song.key.tonic}${song.key.minor ? 'm' : ''}` : ''}
+            onChange={(e) => {
+              const v = e.target.value
+              setSongKey({ tonic: parseInt(v, 10), minor: v.endsWith('m') })
+            }}
+          >
+            {!song.key && <option value="">Unclear</option>}
+            {NOTE.flatMap((_n, i) => [
+              <option key={`${i}`} value={`${i}`}>{keyLabel(i, false)}</option>,
+              <option key={`${i}m`} value={`${i}m`}>{keyLabel(i, true)}</option>
+            ])}
+          </select>
+        </Field>
+        <Field label="Practice">
+          <select id="ref-speed" className="select grow" value={rate} onChange={(e) => void setPlaybackRate(Number(e.target.value))}>
+            {SPEEDS.map((s) => (
+              <option key={s} value={s}>{s === 1 ? 'Full speed' : `${Math.round(s * 100)}% speed (same pitch)`}</option>
+            ))}
+          </select>
+        </Field>
+      </section>
+
+      <section className="psection">
+        <div className="ptitle">Chords <span className="meta">{chordCount} changes</span></div>
+        <p className="drawer-hint tight">Chord names sit on the left of the stage where each chord starts. Click one to change it.</p>
+        <div className="prow-buttons">
+          <button className="btn" onClick={() => addChordAt(tempoMap(getState().song).secToTick(engine.time()))}>Add a change at the playhead</button>
+          {pad && (
+            <button className="btn" title="A soft pad playing the chord lane" onClick={() => updateTrack(pad.id, { muted: !pad.muted })}>
+              {pad.muted ? 'Hear the chords' : 'Mute the chords'}
+            </button>
+          )}
+        </div>
+      </section>
+
+      <section className="psection">
+        <div className="ptitle">Beat</div>
+        <Field label="Style">
+          <select id="ref-style" className="select grow" value={style} onChange={(e) => setStyle(e.target.value)}>
+            {STYLES.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        </Field>
+        <div className="prow-buttons">
+          <button
+            className="btn primary"
+            title="An original beat at the song's tempo: kicks where the song's kicks land, busier where it's busier, quiet where it drops out"
+            onClick={() => {
+              generateDrums(style, Math.floor(Math.random() * 1e9))
+              getState().notify('Generated a beat that follows the song. Edit it in the Beat tab.')
+            }}
+          >
+            Generate a matching beat
+          </button>
+          <button
+            className="btn"
+            title="The song's own kick, snare and hi-hat pattern, as editable steps"
+            onClick={() => getState().notify(copyReferenceGroove() ? 'Copied the song’s groove into the drum track.' : 'No clear drum hits were found in this song.')}
+          >
+            Copy its groove
+          </button>
+        </div>
+      </section>
+
+      <section className="psection">
+        <div className="ptitle">Sections <span className="meta">{song.sections.length} found</span></div>
+        <p className="drawer-hint tight">
+          {song.sections.map((s) => `${s.name} (bar ${s.bar + 1})`).join(' · ') || 'None found.'} Rename or rearrange them in the Sections tab.
+        </p>
+        <div className="prow-buttons">
+          <button className="btn" onClick={() => getState().set({ drawerTab: 'sections' })}>Open Sections</button>
+        </div>
+      </section>
+
+      <section className="psection">
+        <button className="btn" onClick={() => void importReference()}>Replace with another song…</button>
+      </section>
+    </>
+  )
+}
