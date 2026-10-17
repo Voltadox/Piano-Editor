@@ -4,7 +4,7 @@ import { initMidiInput } from './audio/midiInput'
 import { startAutosave } from './actions/autosave'
 import { handleDroppedFiles, newSong, openMidi, openMidiPath, restoreSoundfont, saveSong } from './actions/files'
 import { restoreBackground } from './actions/look'
-import { goToStart, seekBy, stop, syncTransport, toggleLoop, toggleMetronome, toggleRecord, togglePlay } from './actions/transport'
+import { goToStart, seekBy, stop, syncTransport, toggleLoop, toggleMetronome, toggleRecord, togglePlay, toggleStudio } from './actions/transport'
 import { snapTicks, tempoMap, ticksPerBeat } from './model/song'
 import {
   copySelection,
@@ -29,6 +29,7 @@ import { Overview } from './ui/Overview'
 import { Banners, Busy, StatusBar, Toast } from './ui/Overlays'
 import { TrackDrawer } from './ui/TrackDrawer'
 import { Transport } from './ui/Transport'
+import { StudioPanel } from './ui/StudioPanel'
 import { VideoDialog } from './ui/VideoDialog'
 
 function isTyping(e: KeyboardEvent): boolean {
@@ -132,6 +133,7 @@ function onKey(e: KeyboardEvent): void {
   } else if (k === 'v') st.set({ tool: 'select' })
   else if (k === 'k') toggleMetronome()
   else if (k === 'l') toggleLoop()
+  else if (k === 's') toggleStudio()
   else if (k === 'd') st.set({ tool: 'draw' })
   else if (k === 'r') void toggleRecord()
   else if (k === 't') st.set({ drawerOpen: !st.drawerOpen })
@@ -204,6 +206,7 @@ export default function App(): React.JSX.Element {
       <main className={`stage${laneOpen ? ' with-lane' : ''}`}>
         {laneOpen && <VelocityLane />}
         <FallView />
+        <StudioPanel />
         <Banners />
         <TrackDrawer />
       </main>

@@ -55,6 +55,13 @@ export interface EditorState {
   busy: { label: string; progress: number; cancel?: () => void } | null
 
   metronome: boolean
+  /** 0 plays velocities as played .. 1 plays every note at `velLevel` */
+  velEven: number
+  velLevel: number
+  /** live view: what you play rises from the keys, with chord suggestions */
+  studio: boolean
+  /** pitches of the Studio suggestion to mark on the keyboard */
+  studioHint: number[] | null
   /** bars of count-in before recording */
   countIn: number
   /** loop region in ticks */
@@ -110,6 +117,10 @@ export const useStore = create<EditorState>()((set, get) => ({
   busy: null,
 
   metronome: loadPref('metronome', false),
+  velEven: loadPref('velEven', 0),
+  velLevel: loadPref('velLevel', 90),
+  studio: loadPref('studio', false),
+  studioHint: null,
   countIn: loadPref('countIn', 1),
   loop: null,
   loopOn: false,

@@ -18,10 +18,16 @@ npm run typecheck
 ## Using it
 
 - **Open a MIDI file:** Ctrl+O, or drag it onto the window.
-- **Load a soundfont:** use the *Load soundfont* button, or drop a `.sf2`/`.sf3` anywhere. The last one is reloaded automatically next time.
+- **Soundfonts:** open the soundfont menu in the top bar and choose *Add soundfonts…* (pick several at once), or drop `.sf2`/`.sf3` files anywhere. Switch between them from the same menu; the pencil renames one, the × takes it off the list (the file stays where it is). The last one used is reloaded next time.
 - **Tracks** (T): colour, name, instrument, drum kit, mute/solo, add or delete tracks. New notes go into the highlighted track.
-- **Record:** plug in a USB MIDI keyboard (the keyboard icon turns green), press R. Notes are recorded into the active track when you stop.
-- **Export:** WAV, MP3, or a falling-notes video (MP4, 60 fps; 1080p, 720p, or vertical for Shorts/Reels).
+- **Record:** plug in a USB MIDI keyboard (the keyboard icon turns green), press R. Recording counts in first (set the count-in from the arrow next to the metronome), and the view runs upward so what you play grows out of the keys. Notes and sustain/soft pedal moves go into the active track when you stop. With a loop on, recording starts at the top of the loop and each pass adds to the take.
+- **Even out velocity:** the keyboard icon's menu pulls what you play toward one level (gently, strongly, or all the same), for both what you hear and what is recorded.
+- **Studio mode** (S): what you play rises from the keys, and a panel names the key and chord you're playing and suggests chords that fit. Click a suggestion to hear it; Shift+click adds it at the playhead. The first suggestion is marked on the keyboard.
+- **Metronome** (K) and **loop** (L): with notes selected, L loops their bars; Shift+drag on the overview strip sets a loop anywhere.
+- **Velocity lane** (Shift+V): drag across it to set how loud notes are — the selected notes, or the active track when nothing is selected.
+- **Export:** WAV, MP3, or video (Ctrl+E). The video dialog previews the frame at the playhead and sets the style (falling or rising notes), size (720p, 1080p, 4K, vertical for Shorts/Reels), 30 or 60 fps, a title card with artist and caption, and the look: solid, gradient or image background, accent colour, note roundness, glow and key-hit sparks. The look also applies in the editor.
+- **Autosave:** unsaved changes are copied every 30 seconds. If Keyfall closes without saving, it offers the copy back next time.
+- **Recent files:** the arrow next to the open button.
 
 ### Mouse
 
@@ -50,6 +56,13 @@ Hold **Alt** while dragging to ignore the snap grid. Scroll to scrub through tim
 | Ctrl+S / Ctrl+Shift+S | Save / save as |
 | Ctrl+N / Ctrl+O | New / open |
 | R | Record |
+| K | Metronome on/off |
+| L | Loop on/off (with a selection: loop its bars) |
+| S | Studio mode |
+| Ctrl+E | Export video |
+| Ctrl+Shift+A / Ctrl+Shift+P | Select the active track / every note of the same pitch |
+| Ctrl+I / Ctrl+L | Invert the selection / select notes inside the loop |
+| Shift+V | Velocity lane |
 | T | Toggle the track drawer |
 | M | Mute the active track |
 | + / − | Zoom |
@@ -68,4 +81,4 @@ src/renderer/src/
   actions/         Open/save, soundfont loading, export, transport controls
 ```
 
-For development checks, `npx electron . --selftest="<soundfont.sf2>|<output folder>"` loads a soundfont, plays briefly, round-trips the song through MIDI, and runs WAV, MP3 and video exports into the folder, logging the results to the terminal.
+For development checks, `npx electron . --selftest="<soundfont.sf2>|<output folder>"` loads a soundfont, plays briefly, round-trips the song through MIDI, runs WAV, MP3 and video exports (falling and rising) into the folder, and checks looping, chord detection, Studio mode and recording into a new song, logging the results to the terminal. Debug runs use their own settings folder, so they never touch your real settings or autosave.

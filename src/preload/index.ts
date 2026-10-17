@@ -22,6 +22,7 @@ const api = {
   startupFile: (): Promise<string | null> => ipcRenderer.invoke('startup-file'),
   selftest: (): Promise<string | null> => ipcRenderer.invoke('selftest'),
   selftestDone: (): void => ipcRenderer.send('selftest-done'),
+  selftestCapture: (path: string): Promise<void> => ipcRenderer.invoke('selftest-capture', path),
   pathForFile: (file: File): string => webUtils.getPathForFile(file)
 }
 

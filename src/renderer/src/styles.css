@@ -28,7 +28,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg3); paddin
 .app { display: grid; grid-template-rows: auto 30px 1fr auto; height: 100%; position: relative; }
 
 /* ---------- transport ---------- */
-.transport { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px; background: var(--bg1); border-bottom: 1px solid var(--line); min-width: 0; }
+.transport { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 7px 10px; background: var(--bg1); border-bottom: 1px solid var(--line); min-width: 0; }
 .group { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .group.center { gap: 8px; }
 .brand { font-weight: 700; letter-spacing: 0.02em; margin-right: 6px; color: var(--accent); font-size: 15px; }
@@ -70,8 +70,28 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg3); paddin
 .seg button.on { background: var(--bg3); color: var(--text); }
 .seg.text button { width: auto; padding: 0 11px; }
 
-.midi-dot { display: grid; place-items: center; width: 28px; color: #4a5068; }
-.midi-dot.on { color: #4fd1a5; }
+.icon-btn.midi-dot { width: 30px; color: #4a5068; }
+.icon-btn.midi-dot.on { color: #4fd1a5; }
+.icon-btn.midi-dot.evened { box-shadow: inset 0 -2px 0 var(--accent); }
+.menu button.checked::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); align-self: center; margin-left: -2px; }
+.menu-slider { display: flex; align-items: center; gap: 10px; padding: 6px 10px 8px; color: var(--muted); }
+.menu-slider .range { flex: 1; }
+
+/* ---------- studio ---------- */
+.studio { position: absolute; top: 14px; left: 14px; z-index: 6; width: 300px; padding: 12px 14px; border-radius: 12px; background: rgba(16, 19, 30, 0.9); border: 1px solid var(--line); backdrop-filter: blur(6px); display: grid; gap: 8px; }
+.stage.with-lane .studio { left: 110px; }
+.studio-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.studio-tag { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.studio-key, .studio-chord { color: var(--muted); }
+.studio-key strong, .studio-chord strong { color: var(--text); font-size: 14px; margin-left: 3px; }
+.studio-key.muted { font-size: 12px; }
+.studio-label { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.studio-chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.chip { display: grid; justify-items: center; gap: 1px; padding: 7px 4px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg2); }
+.chip:hover { border-color: var(--accent); background: var(--accent-soft); }
+.chip strong { font-size: 15px; }
+.chip span { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.studio-foot { font-size: 11px; color: var(--muted); }
 
 .menu-wrap { position: relative; }
 .menu { position: absolute; right: 0; top: 36px; z-index: 30; min-width: 270px; padding: 6px; border-radius: 10px; background: var(--bg2); border: 1px solid var(--line); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); display: grid; }
@@ -105,7 +125,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg3); paddin
 .fall-canvas { width: 100%; height: 100%; display: block; touch-action: none; }
 
 .stage.with-lane .fall-wrap { left: 96px; }
-.vel-lane { position: absolute; top: 0; bottom: 0; left: 0; width: 96px; display: block; border-right: 1px solid var(--line); cursor: crosshair; touch-action: none; }
+.vel-lane { position: absolute; top: 0; left: 0; width: 96px; height: 100%; display: block; border-right: 1px solid var(--line); cursor: crosshair; touch-action: none; }
 
 .banners { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); width: min(640px, calc(100% - 32px)); display: grid; gap: 8px; pointer-events: none; z-index: 5; }
 .banner { padding: 10px 16px; border-radius: 10px; background: rgba(24, 28, 43, 0.94); border: 1px solid var(--line); color: var(--text); text-align: center; }
@@ -190,6 +210,17 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg3); paddin
 @media (max-width: 1100px) {
   .vbody { flex-direction: column; overflow-y: auto; }
   .vpreview { width: 100%; }
+}
+
+@media (max-width: 1700px) {
+  #zoom { display: none; }
+}
+
+@media (max-width: 1600px) {
+  .brand { display: none; }
+  .btn-label { display: none; }
+  .btn.sf { max-width: 150px; }
+  .group { gap: 4px; }
 }
 
 @media (max-width: 1280px) {

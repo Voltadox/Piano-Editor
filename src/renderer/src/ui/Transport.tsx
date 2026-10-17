@@ -16,7 +16,7 @@ import { SNAPS, tempoMap, ticksPerBar, ticksPerBeat, type Snap } from '../model/
 import { invertSelection, quantize, selectAll, selectRange, selectSamePitch, selectTrack, setTempo, setTimeSig } from '../state/edit'
 import { savePref } from '../state/prefs'
 import { useStore, getState } from '../state/store'
-import { setCountIn, togglePlay, toggleLoop, toggleMetronome, toggleRecord, goToStart } from '../actions/transport'
+import { setCountIn, togglePlay, toggleLoop, toggleMetronome, toggleRecord, toggleStudio, goToStart } from '../actions/transport'
 import * as I from './icons'
 
 function fmtTime(sec: number): string {
@@ -90,7 +90,7 @@ function Menu(props: {
 
 function ExportMenu(): React.JSX.Element {
   return (
-    <Menu trigger={<><I.IconExport /> Export</>}>
+    <Menu trigger={<><I.IconExport /><span className="btn-label">Export</span></>} title="Export audio or video">
       {(run) => (
         <>
           <div className="menu-label">Audio</div>
@@ -204,17 +204,89 @@ function SoundfontMenu(): React.JSX.Element {
   )
 }
 
+function CountInMenu(): React.JSX.Element {
+  const countIn = useStore((s) => s.countIn)
+  const options = [
+    { bars: 0, label: 'No count-in' },
+    { bars: 1, label: 'Count in 1 bar' },
+    { bars: 2, label: 'Count in 2 bars' }
+  ]
+  return (
+    <Menu trigger={<I.IconChevron size={14} />} title="Count-in before recording" className="icon-btn caret">
+      {(run) => (
+        <>
+          <div className="menu-label">Before recording</div>
+          {options.map((o) => (
+            <button key={o.bars} role="menuitemradio" aria-checked={countIn === o.bars} className={countIn === o.bars ? 'checked' : ''} onClick={run(() => setCountIn(o.bars))}>
+              {o.label}
+            </button>
+          ))}
+        </>
+      )}
+    </Menu>
+  )
+}
+
+const EVENING = [
+  { amount: 0, label: 'As played', hint: 'every velocity as you play it' },
+  { amount: 0.5, label: 'Gentle', hint: 'halves the difference between soft and loud' },
+  { amount: 0.8, label: 'Strong', hint: 'keeps only a little of the variation' },
+  { amount: 1, label: 'All the same', hint: 'every note at the level below' }
+]
+
+/** MIDI keyboard status, plus how played velocities are evened out. */
+function InputMenu(): React.JSX.Element {
+  const inputs = useStore((s) => s.midiInputs)
+  const velEven = useStore((s) => s.velEven)
+  const velLevel = useStore((s) => s.velLevel)
+  const set = (patch: { velEven?: number; velLevel?: number }): void => {
+    getState().set(patch)
+    for (const [k, v] of Object.entries(patch)) savePref(k, v)
+  }
+  return (
+    <Menu
+      trigger={<I.IconMidi size={16} />}
+      title={inputs.length ? `MIDI input: ${inputs.join(', ')}` : 'No MIDI keyboard connected'}
+      className={`icon-btn midi-dot${inputs.length ? ' on' : ''}${velEven > 0 ? ' evened' : ''}`}
+    >
+      {(run) => (
+        <>
+          <div className="menu-label">MIDI keyboard</div>
+          <div className="menu-empty">{inputs.length ? inputs.join(', ') : 'None connected. Plug one in and it is picked up automatically.'}</div>
+          <div className="menu-label">Even out velocity</div>
+          {EVENING.map((o) => (
+            <button key={o.amount} role="menuitemradio" aria-checked={velEven === o.amount} className={velEven === o.amount ? 'checked' : ''} title={o.hint} onClick={run(() => set({ velEven: o.amount }))}>
+              {o.label}
+              <span className="kbd">{o.hint}</span>
+            </button>
+          ))}
+          <label className="menu-slider" title="The level velocities are pulled toward">
+            Level
+            <input id="vel-level" className="range" type="range" min={30} max={127} value={velLevel} onChange={(e) => set({ velLevel: Number(e.target.value) })} />
+            <span className="kbd">{velLevel}</span>
+          </label>
+        </>
+      )}
+    </Menu>
+  )
+}
+
 function selectLoop(): void {
   const l = getState().loop
   if (l) selectRange(l.start, l.end)
 }
 
-function SelectMenu(): React.JSX.Element {
+/** Quantize and selection commands. */
+function EditMenu(): React.JSX.Element {
   const hasLoop = useStore((s) => s.loop !== null)
   return (
-    <Menu trigger={<>Select <I.IconChevron size={14} /></>} title="Select notes">
+    <Menu trigger={<>Edit <I.IconChevron size={14} /></>} title="Quantize and select">
       {(run) => (
         <>
+          <div className="menu-label">Quantize to the snap grid</div>
+          <button role="menuitem" onClick={run(() => quantize(false))}>Note starts <span className="kbd">Q</span></button>
+          <button role="menuitem" onClick={run(() => quantize(true))}>Starts and ends <span className="kbd">Shift+Q</span></button>
+          <div className="menu-label">Select</div>
           <button role="menuitem" onClick={run(selectAll)}>Everything <span className="kbd">Ctrl+A</span></button>
           <button role="menuitem" onClick={run(() => selectTrack())}>Active track <span className="kbd">Ctrl+Shift+A</span></button>
           <button role="menuitem" onClick={run(selectSamePitch)}>Same pitch as selection <span className="kbd">Ctrl+Shift+P</span></button>
@@ -238,7 +310,7 @@ export function Transport(): React.JSX.Element {
   const drawerOpen = useStore((s) => s.drawerOpen)
   const laneOpen = useStore((s) => s.laneOpen)
   const metronome = useStore((s) => s.metronome)
-  const countIn = useStore((s) => s.countIn)
+  const studio = useStore((s) => s.studio)
   const loopOn = useStore((s) => s.loopOn)
   const canUndo = useStore((s) => s.past.length > 0)
   const canRedo = useStore((s) => s.future.length > 0)
@@ -284,17 +356,7 @@ export function Transport(): React.JSX.Element {
         >
           <I.IconMetronome />
         </button>
-        <select
-          id="countin"
-          className="select"
-          title="Count-in before recording starts"
-          value={countIn}
-          onChange={(e) => setCountIn(Number(e.target.value))}
-        >
-          <option value={0}>No count-in</option>
-          <option value={1}>Count 1 bar</option>
-          <option value={2}>Count 2 bars</option>
-        </select>
+        <CountInMenu />
         <button
           className={`icon-btn${loopOn ? ' active' : ''}`}
           title="Loop (L): with notes selected, loops their bars. Shift+drag the overview strip to set the loop."
@@ -302,6 +364,14 @@ export function Transport(): React.JSX.Element {
           onClick={toggleLoop}
         >
           <I.IconLoop />
+        </button>
+        <button
+          className={`icon-btn${studio ? ' active' : ''}`}
+          title="Studio mode (S): what you play rises from the keys, with chord suggestions"
+          aria-pressed={studio}
+          onClick={toggleStudio}
+        >
+          <I.IconStudio />
         </button>
         <Clock />
         <label className="field" title={tempoCount > 1 ? 'Starting tempo (this file has tempo changes)' : 'Tempo'}>
@@ -347,8 +417,7 @@ export function Transport(): React.JSX.Element {
             {SNAPS.map((s) => <option key={s} value={s}>{s === 'off' ? 'Off' : s}</option>)}
           </select>
         </label>
-        <button className="btn" title="Quantize starts (Q) · Shift+click or Shift+Q also quantizes ends" onClick={(e) => quantize(e.shiftKey)}>Quantize</button>
-        <SelectMenu />
+        <EditMenu />
         <input
           id="zoom"
           className="range"
@@ -378,9 +447,7 @@ export function Transport(): React.JSX.Element {
           />
         </label>
         <SoundfontMenu />
-        <span className={`midi-dot${midiInputs.length ? ' on' : ''}`} title={midiInputs.length ? `MIDI input: ${midiInputs.join(', ')}` : 'No MIDI keyboard connected'}>
-          <I.IconMidi size={16} />
-        </span>
+        <InputMenu />
         <ExportMenu />
         <button
           className={`icon-btn${laneOpen ? ' active' : ''}`}

@@ -30,3 +30,4 @@ export const IconMetronome = ({ size }: P) => svg(<><path d="M9 3h6l4 18H5z" /><
 export const IconLoop = ({ size }: P) => svg(<><path d="M17 2l3 3-3 3" /><path d="M4 11V9a4 4 0 0 1 4-4h12" /><path d="M7 22l-3-3 3-3" /><path d="M20 13v2a4 4 0 0 1-4 4H4" /></>, size)
 export const IconVelocity = ({ size }: P) => svg(<><path d="M4 20V14M9 20V8M14 20v-9M19 20V4" /></>, size)
 export const IconChevron = ({ size }: P) => svg(<path d="m6 9 6 6 6-6" />, size)
+export const IconStudio = ({ size }: P) => svg(<><circle cx="7" cy="17" r="2.5" /><circle cx="17" cy="14" r="2.5" /><path d="M9.5 17V6l10-2v10" /><path d="M9.5 10l10-2" /></>, size)

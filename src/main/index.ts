@@ -23,6 +23,8 @@ const shotPath = shotArg?.slice('--screenshot='.length)
 // Debug helper: `--selftest=<soundfont>|<outDir>` runs playback + export checks in the renderer and logs results.
 const selftestArg = process.argv.find((a) => a.startsWith('--selftest='))?.slice('--selftest='.length) ?? null
 const startupFile = process.argv.slice(1).find((a) => /\.(mid|midi)$/i.test(a)) ?? null
+// debug runs get their own settings and autosave, so they never touch the user's
+if (shotPath || selftestArg) app.setPath('userData', join(app.getPath('temp'), 'keyfall-selftest'))
 
 let win: BrowserWindow | null = null
 let dirty = false
@@ -41,7 +43,9 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       contextIsolation: true,
-      autoplayPolicy: 'no-user-gesture-required'
+      autoplayPolicy: 'no-user-gesture-required',
+      // debug runs use a hidden window, which must keep painting for its screenshot
+      backgroundThrottling: !shotPath && !selftestArg
     }
   })
   win.setMenuBarVisibility(false)
@@ -134,6 +138,9 @@ ipcMain.on('set-dirty', (_e, value: boolean) => {
 
 ipcMain.handle('startup-file', () => startupFile)
 ipcMain.handle('selftest', () => selftestArg)
+ipcMain.handle('selftest-capture', async (_e, path: string) => {
+  if (selftestArg && win) await writeFile(path, (await win.webContents.capturePage()).toPNG())
+})
 ipcMain.on('selftest-done', async () => {
   if (shotPath && win) await writeFile(shotPath, (await win.webContents.capturePage()).toPNG())
   app.exit(0)

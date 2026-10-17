@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { engine } from '../audio/engine'
+import { viewClock } from '../actions/transport'
 import { isAudible, lowerBound, tempoMap, ticksPerBeat, trackTimes, type Note } from '../model/song'
 import { setVelocities } from '../state/edit'
 import { getState } from '../state/store'
@@ -19,13 +20,13 @@ export function VelocityLane(): React.JSX.Element {
   const painting = useRef<{ lastY: number } | null>(null)
   const hover = useRef<{ x: number; y: number } | null>(null)
 
-  const axis = (): { a: TimeAxis; h: number } => {
+  const axis = (): { a: TimeAxis; h: number; live: boolean; songVisible: boolean } => {
     const canvas = canvasRef.current!
     const stageW = (canvas.parentElement?.clientWidth ?? LANE_W * 4) - LANE_W
     const h = canvas.clientHeight
-    const st = getState()
-    const a = timeAxis({ height: h, keyboardHeight: keyboardHeight(stageW, h), pxPerSec: st.pxPerSec, time: engine.time(), rising: st.recording })
-    return { a, h }
+    const clock = viewClock()
+    const a = timeAxis({ height: h, keyboardHeight: keyboardHeight(stageW, h), pxPerSec: getState().pxPerSec, time: clock.time, rising: clock.rising })
+    return { a, h, live: clock.rising, songVisible: clock.songVisible }
   }
 
   const editable = (): ((n: Note, trackId: number) => boolean) => {
@@ -48,8 +49,8 @@ export function VelocityLane(): React.JSX.Element {
         canvas.height = Math.round(h * dpr)
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      const { a } = axis()
-      const { song } = getState()
+      const { a, songVisible } = axis()
+      const song = songVisible ? getState().song : { ...getState().song, tracks: [] }
       const map = tempoMap(song)
       const canEdit = editable()
       const inner = w - PAD * 2
@@ -149,7 +150,8 @@ export function VelocityLane(): React.JSX.Element {
       title="Velocity: drag across to set how loud notes are. Paints the selected notes, or the active track when nothing is selected."
       onPointerDown={(e) => {
         const { x, y } = local(e)
-        if (e.button !== 0 || getState().recording || y >= axis().a.line) return
+        const ax = axis()
+        if (e.button !== 0 || ax.live || y >= ax.a.line) return
         ;(e.target as Element).setPointerCapture(e.pointerId)
         getState().beginGesture()
         painting.current = { lastY: y }

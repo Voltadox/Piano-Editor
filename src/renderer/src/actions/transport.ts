@@ -1,5 +1,5 @@
 import { engine } from '../audio/engine'
-import { beginTake, commitTake } from '../audio/midiInput'
+import { beginTake, commitTake, liveTake, liveTrail, wallNow, type LiveNote } from '../audio/midiInput'
 import { songEndTick, tempoMap, ticksPerBar, ticksPerBeat } from '../model/song'
 import { savePref } from '../state/prefs'
 import { getState, useStore } from '../state/store'
@@ -128,4 +128,36 @@ export function syncTransport(): () => void {
   return useStore.subscribe((s, p) => {
     if (s.metronome !== p.metronome || s.loop !== p.loop || s.loopOn !== p.loopOn || s.song.tempos !== p.song.tempos) apply()
   })
+}
+
+// ---------- live view ----------
+
+export interface ViewClock {
+  /** time runs upward, notes rising out of the keys */
+  rising: boolean
+  time: number
+  /** false while Studio mode is idle: the stage shows only what is being played */
+  songVisible: boolean
+  live: LiveNote[] | undefined
+}
+
+/**
+ * Recording and Studio mode run the stage upward. Studio mode with the transport stopped
+ * runs on the wall clock, so a jam trails up the screen without the song moving.
+ */
+export function viewClock(): ViewClock {
+  const { recording, studio, playing } = getState()
+  if (recording) return { rising: true, time: engine.time(), songVisible: true, live: liveTake() }
+  if (studio && playing) return { rising: true, time: engine.time(), songVisible: true, live: liveTrail(engine.time()) }
+  if (studio) {
+    const t = wallNow()
+    return { rising: true, time: t, songVisible: false, live: liveTrail(t) }
+  }
+  return { rising: false, time: engine.time(), songVisible: true, live: undefined }
+}
+
+export function toggleStudio(): void {
+  const on = !getState().studio
+  getState().set({ studio: on, studioHint: null })
+  savePref('studio', on)
 }

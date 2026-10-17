@@ -3,8 +3,8 @@ import { engine } from '../audio/engine'
 import { HIGHEST, LOWEST, lowerBound, snapTicks, snapTo, tempoMap, trackTimes, type Note } from '../model/song'
 import { addNote, deleteNotes, mapNotes } from '../state/edit'
 import { getState } from '../state/store'
-import { liveTake } from '../audio/midiInput'
-import { countdown } from '../actions/transport'
+import { pressKey, releaseKey } from '../audio/midiInput'
+import { countdown, viewClock } from '../actions/transport'
 import { drawScene, hitNote, keyLayout, pianoKeyLength, type Scene } from './draw'
 
 type Box = { x0: number; y0: number; x1: number; y1: number }
@@ -31,11 +31,12 @@ export function FallView(): React.JSX.Element {
     const st = getState()
     const active = st.song.tracks.find((t) => t.id === st.activeTrackId)
     const map = tempoMap(st.song)
+    const clock = viewClock()
     return {
-      song: st.song,
+      song: clock.songVisible ? st.song : { ...st.song, tracks: [] },
       width: size.current.w,
       height: size.current.h,
-      time: engine.time(),
+      time: clock.time,
       pxPerSec: st.pxPerSec,
       keyboardHeight: keyboardHeight(size.current.w, size.current.h),
       selection: st.selection,
@@ -45,9 +46,10 @@ export function FallView(): React.JSX.Element {
       activeTrackId: st.activeTrackId,
       liveKeys: engine.liveKeys,
       liveColor: active?.color,
-      rising: st.recording,
-      take: st.recording ? liveTake() : undefined,
-      loop: st.loop && st.loopOn ? { start: map.tickToSec(st.loop.start), end: map.tickToSec(st.loop.end) } : null,
+      rising: clock.rising,
+      take: clock.live,
+      loop: st.loop && st.loopOn && clock.songVisible ? { start: map.tickToSec(st.loop.start), end: map.tickToSec(st.loop.end) } : null,
+      hints: st.studio ? st.studioHint : null,
       countdown: countdown(),
       theme: st.theme,
       bgImage: st.bgImage
@@ -142,14 +144,12 @@ export function FallView(): React.JSX.Element {
 
     if (y >= line) {
       const pitch = keyLayout(s.width).pitchAt(x)
-      const ch = activeTrack()?.channel ?? 0
-      void engine.init().then(() => engine.noteOn(ch, pitch, 100))
-      engine.liveKeys.set(pitch, 100)
-      drag.current = { kind: 'key', pitch, ch }
+      void engine.init().then(() => pressKey(pitch, 100))
+      drag.current = { kind: 'key', pitch, ch: 0 }
       return
     }
-    // the view runs upward while recording; note editing waits until it stops
-    if (st.recording) return
+    // the view runs upward while recording and in Studio mode; note editing waits until it stops
+    if (s.rising) return
 
     const hit = hitNote(s, x, y)
     if (e.button === 2) {
@@ -202,7 +202,8 @@ export function FallView(): React.JSX.Element {
     const d = drag.current
     const st = getState()
     if (!d) {
-      const hit = st.recording ? null : hitNote(scene(), x, y)
+      const s = scene()
+      const hit = s.rising ? null : hitNote(s, x, y)
       hoverId.current = hit?.noteId
       const c = canvasRef.current!
       c.style.cursor = hit ? (hit.part === 'body' ? 'grab' : 'ns-resize') : st.tool === 'draw' ? 'crosshair' : 'default'
@@ -284,10 +285,8 @@ export function FallView(): React.JSX.Element {
         const s = scene()
         const pitch = keyLayout(s.width).pitchAt(x)
         if (pitch !== d.pitch && y >= s.height - s.keyboardHeight) {
-          engine.noteOff(d.ch, d.pitch)
-          engine.liveKeys.delete(d.pitch)
-          engine.noteOn(d.ch, pitch, 100)
-          engine.liveKeys.set(pitch, 100)
+          releaseKey(d.pitch)
+          pressKey(pitch, 100)
           d.pitch = pitch
         }
         break
@@ -301,8 +300,7 @@ export function FallView(): React.JSX.Element {
     box.current = null
     if (!d) return
     if (d.kind === 'key') {
-      engine.noteOff(d.ch, d.pitch)
-      engine.liveKeys.delete(d.pitch)
+      releaseKey(d.pitch)
       return
     }
     if (d.kind !== 'box') getState().endGesture()
@@ -334,7 +332,7 @@ export function FallView(): React.JSX.Element {
   const onDoubleClick = (e: React.MouseEvent): void => {
     const { x, y } = local(e)
     const s = scene()
-    if (getState().recording || y >= s.height - s.keyboardHeight || hitNote(s, x, y) || getState().tool === 'draw') return
+    if (s.rising || y >= s.height - s.keyboardHeight || hitNote(s, x, y) || getState().tool === 'draw') return
     createNote(x, y, defaultLen())
   }
 

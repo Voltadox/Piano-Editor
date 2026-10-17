@@ -97,6 +97,8 @@ export interface Scene {
   loop?: { start: number; end: number } | null
   /** beats left in a recording count-in */
   countdown?: number
+  /** pitches to mark on the keyboard (a Studio chord suggestion) */
+  hints?: number[] | null
   theme?: Theme
   bgImage?: ImageBitmap | null
   /** larger labels and no editing chrome, for video export */
@@ -373,6 +375,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
   const litColors = new Map<number, string>()
   for (const [p, l] of lit) litColors.set(p, l.color)
   drawKeyboard(ctx, keys, W, line, kbH, litColors, theme.accent, !!s.presentation)
+  if (s.hints) drawHints(ctx, keys, line, kbH, s.hints, theme.accent)
 
   if (sparks.length) drawSparks(ctx, sparks, keys, line, t, theme.glow)
 
@@ -393,6 +396,24 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
     ctx.lineWidth = 1
     ctx.fillRect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0))
     ctx.strokeRect(Math.min(x0, x1) + 0.5, Math.min(y0, y1) + 0.5, Math.abs(x1 - x0), Math.abs(y1 - y0))
+  }
+}
+
+/** Dots on the keys of a suggested chord. */
+function drawHints(ctx: CanvasRenderingContext2D, keys: KeyLayout, top: number, h: number, pitches: number[], accent: string): void {
+  for (const p of pitches) {
+    if (p < LOWEST || p > HIGHEST) continue
+    const black = isBlack(p)
+    const x = keys.x(p) + keys.w(p) / 2
+    const y = top + (black ? h * 0.63 - keys.blackW * 0.9 : h - keys.whiteW * 0.9)
+    const r = keys.w(p) * (black ? 0.3 : 0.26)
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fillStyle = accent
+    ctx.fill()
+    ctx.lineWidth = 1.5
+    ctx.strokeStyle = black ? 'rgba(255,255,255,0.8)' : 'rgba(10,12,20,0.6)'
+    ctx.stroke()
   }
 }
 
