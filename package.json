@@ -1,0 +1,62 @@
+{
+  "name": "keyfall",
+  "version": "0.1.0",
+  "description": "Falling-notes MIDI editor with soundfont playback",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dist": "electron-vite build && electron-builder --win",
+    "postinstall": "node node_modules/electron/install.js"
+  },
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
+    "@tonejs/midi": "^2.0.28",
+    "mediabunny": "^1.61.6",
+    "midi-file": "^1.2.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "spessasynth_core": "^4.3.22",
+    "spessasynth_lib": "^4.3.14",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "electron": "^44.8.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^6.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4"
+  },
+  "productName": "Keyfall",
+  "private": true,
+  "build": {
+    "appId": "aero.keyfall.app",
+    "productName": "Keyfall",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "mid",
+          "midi"
+        ],
+        "name": "MIDI file"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  }
+}
