@@ -461,7 +461,8 @@ function findSections(c: Float32Array[], bass: Float32Array[], energy: number[],
   let next = 0
   blocks.forEach((blk, i) => {
     let found = -1
-    let best = 0.9
+    // repeats in real songs vary in arrangement, so the harmony only has to match closely
+    let best = 0.82
     for (let j = 0; j < i; j++) {
       const sim = blockSim(blk, blocks[j])
       if (sim > best) {
@@ -472,7 +473,7 @@ function findSections(c: Float32Array[], bass: Float32Array[], energy: number[],
     label.push(found >= 0 ? found : next++)
   })
   // two blocks in a row that belong together (an 8-bar verse) stay one section
-  const segs: { from: number; to: number; labels: number[] }[] = []
+  const segs: { from: number; to: number; labels: number[]; split?: boolean }[] = []
   blocks.forEach((blk, i) => {
     const last = segs[segs.length - 1]
     const pairContinues = last && last.labels.length === 1 && i > 0 && blocks.some((_, j) => j > 0 && j !== i && label[j - 1] === label[i - 1] && label[j] === label[i])
@@ -480,6 +481,58 @@ function findSections(c: Float32Array[], bass: Float32Array[], energy: number[],
       last.to = blk.to
       last.labels.push(label[i])
     } else segs.push({ from: blk.from, to: blk.to, labels: [label[i]] })
+  })
+  // consecutive parts that never come back are one stretch (until it's cut up again below)
+  const seen = new Map<string, number>()
+  segs.forEach((sg) => seen.set(sg.labels.join('.'), (seen.get(sg.labels.join('.')) ?? 0) + 1))
+  for (let k = segs.length - 1; k > 0; k--) {
+    const once = (sg: { labels: number[] }): boolean => seen.get(sg.labels.join('.')) === 1
+    if (once(segs[k]) && once(segs[k - 1])) {
+      segs[k - 1].to = segs[k].to
+      segs.splice(k, 1)
+    }
+  }
+  // long stretches that never repeat get cut where the harmony changes most (checkerboard novelty)
+  const K = 4
+  const novelty = (i: number): number => {
+    let v = 0
+    for (let a = -K; a < K; a++)
+      for (let b = -K; b < K; b++) {
+        const x = barVec[i + a]
+        const y = barVec[i + b]
+        if (x && y) v += ((a < 0) === (b < 0) ? 1 : -1) * dot(x, y)
+      }
+    return v
+  }
+  for (let k = 0; k < segs.length; k++) {
+    const sg = segs[k]
+    if (sg.to - sg.from <= 16) continue
+    let cut = -1
+    let best = -Infinity
+    for (let i = sg.from + 8; i <= sg.to - 8; i += 2) {
+      const v = novelty(i)
+      if (v > best) {
+        best = v
+        cut = i
+      }
+    }
+    if (cut < 0) continue
+    // the two halves become new kinds unless they sound like a part heard elsewhere
+    segs.splice(k, 1, { from: sg.from, to: cut, labels: [next++], split: true }, { from: cut, to: sg.to, labels: [next++], split: true })
+    k--
+  }
+  const segVec = (sg: { from: number; to: number }): Float32Array => {
+    const v = new Float32Array(24)
+    for (let i = sg.from; i < sg.to; i++) barVec[i]?.forEach((x, j) => (v[j] += x))
+    return norm(v)
+  }
+  segs.forEach((sg, i) => {
+    if (!sg.split) return
+    for (let j = 0; j < i; j++)
+      if (segs[j].split && dot(segVec(sg), segVec(segs[j])) > 0.95) {
+        sg.labels = segs[j].labels
+        break
+      }
   })
   const kind = (s: { labels: number[] }): string => s.labels.join('.')
   const counts = new Map<string, number>()
@@ -501,12 +554,13 @@ function findSections(c: Float32Array[], bass: Float32Array[], energy: number[],
   // near-silent tail blocks are just the song ringing out
   const typical = [...barEnergy].sort((x, y) => x - y)[barEnergy.length >> 1] || 1
   while (segs.length > 1 && loud(segs[segs.length - 1]) < typical * 0.15) segs.pop()
-  const named = segs.map((s, i) => {
-    let name = names.get(kind(s)) ?? 'Bridge'
-    if (i === 0 && !names.has(kind(s))) name = 'Intro'
-    if (i === segs.length - 1 && !names.has(kind(s)) && segs.length > 2) name = 'Outro'
-    return { bar: s.from, name }
+  // parts that never come back get plain names; they're easy to rename
+  let part = 0
+  return segs.map((s, i) => {
+    const repeated = names.get(kind(s))
+    if (repeated) return { bar: s.from, name: repeated }
+    if (i === 0) return { bar: s.from, name: 'Intro' }
+    if (i === segs.length - 1 && segs.length > 2) return { bar: s.from, name: 'Outro' }
+    return { bar: s.from, name: segs.length <= 4 ? 'Bridge' : `Part ${String.fromCharCode(65 + part++)}` }
   })
-  // neighbouring one-off parts with the same name are one section
-  return named.filter((s, i) => i === 0 || s.name !== named[i - 1].name || names.has(s.name))
 }

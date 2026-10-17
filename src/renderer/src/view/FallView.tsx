@@ -4,7 +4,9 @@ import { HIGHEST, LOWEST, lowerBound, snapTicks, snapTo, tempoMap, trackTimes, t
 import { addNote, deleteNotes, mapNotes } from '../state/edit'
 import { getState } from '../state/store'
 import { pressKey, releaseKey } from '../audio/midiInput'
+import { livePitch } from '../audio/vocalRecorder'
 import { vocalLines } from '../audio/vocals'
+import { melodyPitchAt } from '../model/guide'
 import { chordLabel } from '../actions/reference'
 import { countdown, viewClock } from '../actions/transport'
 import { chordPillAt, drawScene, hitNote, keyLayout, pianoKeyLength, type Scene } from './draw'
@@ -18,6 +20,14 @@ type Drag =
   | { kind: 'draw'; noteId: number; startTick: number }
   | { kind: 'box'; box: Box; additive: Set<number> }
   | { kind: 'key'; pitch: number; ch: number }
+
+/** Your sung pitch for the stage, while it's shown or a vocal take is recording. */
+function livePitchFor(st: ReturnType<typeof getState>): { midi: number; target: number | null } | null {
+  if (!st.showPitch && !st.vocalRec) return null
+  const midi = livePitch()
+  if (midi === null) return null
+  return { midi, target: melodyPitchAt(st.song, engine.time()) }
+}
 
 export const keyboardHeight = (w: number, h: number): number => Math.round(Math.min(h * 0.24, Math.max(90, pianoKeyLength(w))))
 
@@ -54,6 +64,7 @@ export function FallView(): React.JSX.Element {
       hints: st.studio && st.studioChords ? st.studioHint : null,
       vocals: clock.songVisible ? vocalLines(st.song) : undefined,
       sections: st.song.sections,
+      livePitch: livePitchFor(st),
       chordMarks: clock.songVisible ? st.song.chords.map((c, index) => ({ sec: map.tickToSec(c.tick), label: chordLabel(c), index })) : undefined,
       countdown: countdown(),
       theme: st.theme,

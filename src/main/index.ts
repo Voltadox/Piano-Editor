@@ -1,4 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, session, type FileFilter } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, session, utilityProcess, type FileFilter, type UtilityProcess, type WebContents } from 'electron'
+import { createWriteStream } from 'fs'
+import { stat } from 'fs/promises'
 import { join, basename } from 'path'
 import { rmSync } from 'fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
@@ -143,6 +145,86 @@ ipcMain.handle('autosave-read', async () => {
     return null
   }
 })
+// ---------- downloadable models ----------
+
+/** Models fetched on first use and kept in the user's data folder. */
+const MODELS: Record<string, { url: string; bytes: number; file: string }> = {
+  separator: {
+    url: 'https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/Kim_Vocal_2.onnx',
+    bytes: 66759214,
+    file: 'Kim_Vocal_2.onnx'
+  }
+}
+
+const modelPath = (name: string): string => join(app.getPath('userData'), 'models', MODELS[name].file)
+
+/** Downloads a model if it isn't on disk yet, reporting progress to the page. */
+async function ensureModel(name: string, sender: WebContents): Promise<string> {
+  const m = MODELS[name]
+  const path = modelPath(name)
+  try {
+    if ((await stat(path)).size === m.bytes) return path
+  } catch {
+    // not downloaded yet
+  }
+  await mkdir(join(app.getPath('userData'), 'models'), { recursive: true })
+  const res = await fetch(m.url)
+  if (!res.ok || !res.body) throw new Error(`Download failed (${res.status})`)
+  const tmp = `${path}.part`
+  const out = createWriteStream(tmp)
+  let got = 0
+  const reader = res.body.getReader()
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    got += value.length
+    if (!out.write(value)) await new Promise((r) => out.once('drain', r))
+    sender.send('model-progress', { name, received: got, total: m.bytes })
+  }
+  await new Promise<void>((r, j) => out.end((err?: Error | null) => (err ? j(err) : r())))
+  if (got !== m.bytes) throw new Error('The download was incomplete. Check your connection and try again.')
+  await rename(tmp, path)
+  return path
+}
+
+// ---------- vocal separation ----------
+
+let separator: UtilityProcess | null = null
+let nextJob = 1
+const jobs = new Map<number, { sender: WebContents; resolve: (v: unknown) => void; reject: (e: Error) => void }>()
+
+function getSeparator(): UtilityProcess {
+  if (separator) return separator
+  separator = utilityProcess.fork(join(__dirname, 'separator.js'), [], { serviceName: 'Keyfall vocal separator' })
+  separator.on('message', (m: { id: number; type: string; value?: number; message?: string; left?: Float32Array; right?: Float32Array }) => {
+    const job = jobs.get(m.id)
+    if (!job) return
+    if (m.type === 'progress') job.sender.send('separate-progress', m.value)
+    else {
+      jobs.delete(m.id)
+      if (m.type === 'done') job.resolve({ left: m.left, right: m.right })
+      else job.reject(new Error(m.message))
+    }
+  })
+  separator.on('exit', () => {
+    separator = null
+    for (const [id, job] of jobs) {
+      jobs.delete(id)
+      job.reject(new Error('The vocal separator stopped unexpectedly.'))
+    }
+  })
+  return separator
+}
+
+ipcMain.handle('separate-vocals', async (e, left: Float32Array, right: Float32Array) => {
+  const path = await ensureModel('separator', e.sender)
+  const id = nextJob++
+  return new Promise((resolve, reject) => {
+    jobs.set(id, { sender: e.sender, resolve, reject })
+    getSeparator().postMessage({ id, left, right, modelPath: path })
+  })
+})
+
 ipcMain.handle('backup-soundfont', async () => {
   try {
     return new Uint8Array(await readFile(backupFontPath()))

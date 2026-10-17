@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { engine } from '../audio/engine'
-import { listMics, micLevel, openMic } from '../audio/vocalRecorder'
+import { listMics, micLevel, openMic, setShowPitch } from '../audio/vocalRecorder'
 import { tuningCount } from '../audio/vocals'
 import { recordVocals } from '../actions/transport'
 import { VOCAL_PRESETS, type AudioTrack, type GuideVoice } from '../model/audio'
@@ -24,6 +24,7 @@ const REGISTERS = [
 function MicSection(): React.JSX.Element {
   const micId = useStore((s) => s.micId)
   const latencyMs = useStore((s) => s.latencyMs)
+  const showPitch = useStore((s) => s.showPitch)
   const [mics, setMics] = useState<MediaDeviceInfo[]>([])
   const [open, setOpen] = useState(false)
   const meter = useRef<HTMLDivElement>(null)
@@ -79,6 +80,9 @@ function MicSection(): React.JSX.Element {
           <button className="btn" onClick={() => void check()}>Check level</button>
         )}
       </Field>
+      <label className="check">
+        <input id="show-pitch" type="checkbox" checked={showPitch} onChange={(e) => void setShowPitch(e.target.checked)} /> Show my pitch on the keys
+      </label>
       <Field label="Timing">
         <Slider id="latency" value={latencyMs} min={-100} max={200} step={1} title="Shifts recorded takes earlier if they land late (raise it) or later if early (lower it)" onChange={(v) => {
           getState().set({ latencyMs: v })
@@ -174,7 +178,10 @@ function TrackEditor({ t }: { t: AudioTrack }): React.JSX.Element {
                 label="Chord note"
                 value={t.tune.voice}
                 onChange={(voice: GuideVoice) => tune({ voice })}
-                options={(['root', 'third', 'fifth', 'octave'] as GuideVoice[]).map((v) => ({ value: v, label: voiceName(v) }))}
+                options={(song.tracks.some((x) => x.role === 'melody') ? ['melody', 'root', 'third', 'fifth', 'octave'] : ['root', 'third', 'fifth', 'octave'] as GuideVoice[]).map((v) => ({
+                  value: v as GuideVoice,
+                  label: voiceName(v as GuideVoice)
+                }))}
               />
             </Field>
             <Field label="Register">

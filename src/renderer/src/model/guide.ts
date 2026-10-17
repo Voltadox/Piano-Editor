@@ -1,6 +1,6 @@
 import type { GuideVoice } from './audio'
 import { detectKey, recognizeChord, type Key } from './harmony'
-import { DRUM_CHANNEL, isAudible, songEndTick, tempoMap, ticksPerBeat, trackTimes, type Song, type Track } from './song'
+import { DRUM_CHANNEL, isAudible, lowerBound, songEndTick, tempoMap, ticksPerBeat, trackTimes, type Song, type Track } from './song'
 
 const SCALES = { major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10] }
 
@@ -80,9 +80,20 @@ const nearest = (pc: number, centre: number): number => {
   return centre - base > 6 ? base + 12 : base
 }
 
+/** The reference melody's note sounding at a song time, if the song has one. */
+export function melodyPitchAt(song: Song, sec: number): number | null {
+  const t = song.tracks.find((x) => x.role === 'melody')
+  if (!t) return null
+  const times = trackTimes(t, tempoMap(song))
+  let i = lowerBound(times.start, sec + 1e-6) - 1
+  for (; i >= 0 && i >= lowerBound(times.start, sec - times.maxDur); i--) if (times.end[i] > sec) return t.notes[i].pitch
+  return null
+}
+
 /** The note a harmony voice should sing at a song time, placed near `centre`. */
 export function guidePitchAt(song: Song, sec: number, voice: GuideVoice, centre: number): number | null {
   if (sec < 0) return null
+  if (voice === 'melody') return melodyPitchAt(song, sec)
   const chords = chordTimeline(song)
   const beat = Math.floor(tempoMap(song).secToTick(sec) / ticksPerBeat(song))
   const chord = chords[Math.min(chords.length - 1, beat)]

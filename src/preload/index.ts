@@ -21,6 +21,18 @@ const api = {
   autosaveClear: (): Promise<void> => ipcRenderer.invoke('autosave-clear'),
   takeWrite: (id: string, data: Uint8Array): Promise<void> => ipcRenderer.invoke('take-write', id, data),
   backupSoundfont: (): Promise<Uint8Array | null> => ipcRenderer.invoke('backup-soundfont'),
+  separateVocals: (left: Float32Array, right: Float32Array): Promise<{ left: Float32Array; right: Float32Array }> =>
+    ipcRenderer.invoke('separate-vocals', left, right),
+  onSeparateProgress: (fn: (p: number) => void): (() => void) => {
+    const h = (_e: unknown, p: number): void => fn(p)
+    ipcRenderer.on('separate-progress', h)
+    return () => ipcRenderer.removeListener('separate-progress', h)
+  },
+  onModelProgress: (fn: (p: { name: string; received: number; total: number }) => void): (() => void) => {
+    const h = (_e: unknown, p: { name: string; received: number; total: number }): void => fn(p)
+    ipcRenderer.on('model-progress', h)
+    return () => ipcRenderer.removeListener('model-progress', h)
+  },
   takeRead: (id: string): Promise<Uint8Array | null> => ipcRenderer.invoke('take-read', id),
   startupFile: (): Promise<string | null> => ipcRenderer.invoke('startup-file'),
   selftest: (): Promise<string | null> => ipcRenderer.invoke('selftest'),

@@ -104,6 +104,8 @@ export interface Scene {
   sections?: { bar: number; name: string }[]
   /** the chord lane: chord names at the time each chord starts */
   chordMarks?: { sec: number; label: string; index: number }[]
+  /** the pitch being sung now, and the reference note to aim for */
+  livePitch?: { midi: number; target: number | null } | null
   /** pitches to mark on the keyboard (a Studio chord suggestion) */
   hints?: number[] | null
   theme?: Theme
@@ -396,6 +398,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
   for (const [p, l] of lit) litColors.set(p, l.color)
   drawKeyboard(ctx, keys, W, line, kbH, litColors, theme.accent, !!s.presentation)
   if (s.hints) drawHints(ctx, keys, line, kbH, s.hints, theme.accent)
+  if (s.livePitch) drawLivePitch(ctx, keys, line, s.livePitch)
 
   if (sparks.length) drawSparks(ctx, sparks, keys, line, t, theme.glow)
 
@@ -496,6 +499,44 @@ function drawVocals(
     ctx.strokeStyle = v.color
     ctx.lineWidth = Math.max(2, keys.whiteW * 0.12)
     ctx.stroke()
+  }
+}
+
+/**
+ * The pitch you're singing, as a glowing marker on the keyboard line: green when within 35 cents
+ * of the reference note (in any octave), amber otherwise, with how far off you are.
+ */
+function drawLivePitch(ctx: CanvasRenderingContext2D, keys: KeyLayout, line: number, p: { midi: number; target: number | null }): void {
+  const m = Math.max(LOWEST, Math.min(HIGHEST - 1, p.midi))
+  const b = Math.floor(m)
+  const centre = (k: number): number => keys.x(k) + keys.w(k) / 2
+  const x = centre(b) + (centre(b + 1) - centre(b)) * (m - b)
+  let off: number | null = null
+  if (p.target !== null) {
+    // compare in the octave nearest the target, so singing an octave away still counts
+    const d = p.midi - p.target
+    off = d - 12 * Math.round(d / 12)
+  }
+  const good = off !== null && Math.abs(off) < 0.35
+  const color = off === null ? '#e4e7f2' : good ? '#5fd3a8' : '#f2bf5e'
+  const r = Math.max(6, keys.whiteW * 0.42)
+  const glow = ctx.createRadialGradient(x, line, 0, x, line, r * 3)
+  glow.addColorStop(0, hexA(color.length === 7 ? color : '#e4e7f2', 0.55))
+  glow.addColorStop(1, hexA(color.length === 7 ? color : '#e4e7f2', 0))
+  ctx.fillStyle = glow
+  ctx.fillRect(x - r * 3, line - r * 3, r * 6, r * 6)
+  ctx.beginPath()
+  ctx.arc(x, line - r - 4, r, 0, Math.PI * 2)
+  ctx.fillStyle = color
+  ctx.fill()
+  if (off !== null) {
+    ctx.font = '600 12px "Segoe UI", system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'bottom'
+    ctx.fillStyle = color
+    const cents = Math.round(off * 100)
+    ctx.fillText(good ? 'on pitch' : `${cents > 0 ? '+' : ''}${cents}¢`, x, line - 2 * r - 10)
+    ctx.textAlign = 'left'
   }
 }
 

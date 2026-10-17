@@ -10,10 +10,12 @@ import { packProject, unpackProject } from './actions/project'
 import { usePresetBackground } from './actions/look'
 import { detectPitch, pitchShifts, psola } from './audio/pitch'
 import { addTake, getTake } from './audio/takes'
+import { encodeWavMono } from './audio/wav'
 import { closeMic, loadRecorderWorklet, micLevel, openMic } from './audio/vocalRecorder'
 import { processAll } from './audio/vocals'
 import { addSection, copyReferenceGroove, duplicateSection, generateDrums, moveSection } from './state/arrange'
 import { chordLabel, importReferenceAudio, keyLabel, setChordAt } from './actions/reference'
+import { listenTo, separateReference } from './actions/separate'
 import { addAudioTrack, addRecordedPasses } from './state/vocalEdit'
 import { selectAll, selectionSustained, setSustain } from './state/edit'
 import { writeMidiFile } from './model/midiio'
@@ -25,7 +27,12 @@ const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms)
 
 /** Developer check run with `--selftest=<soundfont>|<outDir>`; never runs in normal use. */
 export async function runSelftest(arg: string): Promise<void> {
-  const [sfPath, outDir] = arg.split('|')
+  const [sfPath, outDir, realSong] = arg.split('|')
+  if (realSong) {
+    await realSongCheck(sfPath, outDir, realSong)
+    window.keyfall.selftestDone()
+    return
+  }
   try {
     const sf = await window.keyfall.readFile(sfPath)
     if (!sf) throw new Error(`cannot read ${sfPath}`)
@@ -302,6 +309,30 @@ export async function runSelftest(arg: string): Promise<void> {
           else for (let i = 0; i < 11000; i++) x[s + i] += 0.25 * rnd() * Math.exp(-i / 2600)
         }
       })
+      // a sung line: four notes a bar that fit each chord, with vibrato, vowel-like tone and short gaps
+      const tunes = [[69, 72, 76, 72], [69, 72, 77, 72], [67, 72, 76, 72], [67, 71, 74, 71]]
+      const sungTruth: { start: number; pitch: number }[] = []
+      let ph = 0
+      plan.forEach((p, b) => {
+        for (let q = 0; q < 4; q++) {
+          const start = lead + (b * 4 + q) * beatSec
+          const pitch = tunes[p][q]
+          if (sungTruth.length < 16) sungTruth.push({ start, pitch })
+          const s0 = Math.floor(start * sr)
+          const len = Math.floor(beatSec * 0.85 * sr)
+          for (let i = 0; i < len; i++) {
+            const t = i / sr
+            const f = 440 * Math.pow(2, (pitch - 69 + 0.15 * Math.sin(2 * Math.PI * 5.5 * t)) / 12)
+            ph += (2 * Math.PI * f) / sr
+            let v = 0
+            for (let h = 1; h <= 12; h++) {
+              const hf = f * h
+              v += Math.sin(ph * h) * (0.15 + Math.exp(-(((hf - 700) / 300) ** 2)) + 0.6 * Math.exp(-(((hf - 1200) / 350) ** 2)) + 0.3 * Math.exp(-(((hf - 2600) / 500) ** 2)))
+            }
+            x[s0 + i] += 0.1 * v * Math.min(1, t / 0.02, (len / sr - t) / 0.03)
+          }
+        }
+      })
       const buf = new AudioBuffer({ length: n, numberOfChannels: 2, sampleRate: sr })
       buf.copyToChannel(x, 0)
       buf.copyToChannel(x, 1)
@@ -328,6 +359,21 @@ export async function runSelftest(arg: string): Promise<void> {
       setChordAt(0, { root: 2, minor: true })
       log('reference: chord 1 changed to', chordLabel(getState().song.chords[0]), '· pad notes', padBefore, '->', getState().song.tracks.find((t) => t.role === 'chords')!.notes.length)
       setChordAt(0, { root: 9, minor: true })
+
+      // separate the vocals, find the sung notes, and play only the instrumental
+      const tSep = performance.now()
+      await separateReference()
+      const after = getState().song
+      const melodyTrack = after.tracks.find((tr) => tr.role === 'melody')
+      const m2 = tempoMap(after)
+      const refClip = after.audioTracks.find((tr) => tr.kind === 'reference')!.clips[0]
+      const toAudio = (tick: number): number => m2.tickToSec(tick) - m2.tickToSec(refClip.tick) + refClip.offset
+      const found = (melodyTrack?.notes ?? []).map((nn) => ({ start: toAudio(nn.tick), pitch: nn.pitch }))
+      const hits = sungTruth.filter((tn) => found.some((f) => f.pitch === tn.pitch && Math.abs(f.start - tn.start) < 0.08)).length
+      log('separation:', ((performance.now() - tSep) / 1000).toFixed(1), 's · stems', after.audioTracks.filter((tr) => tr.kind === 'stem').map((tr) => tr.name).join(', '), '· sung notes found', found.length, '· first 16 true notes matched', `${hits}/16`, '·', getState().toast?.text)
+      listenTo('instrumental')
+      log('listen to instrumental: muted', getState().song.audioTracks.filter((tr) => tr.muted).map((tr) => tr.name).join(', '))
+      listenTo('song')
       // practice speed: 75% should advance the playhead three-quarters as fast
       await setPlaybackRate(0.75)
       engine.seek(5)
@@ -395,4 +441,62 @@ async function grabFrame(videoPath: string, pngPath: string, at: number): Promis
   c.getContext('2d')!.drawImage(el, 0, 0)
   const png = await new Promise<Blob>((r) => c.toBlob((b) => r(b!), 'image/png'))
   await window.keyfall.writeFile(pngPath, new Uint8Array(await png.arrayBuffer()))
+}
+
+/**
+ * With a third argument, runs reference mode on a real song file instead of the usual checks:
+ * analysis, vocal separation and the sung notes, with a screenshot of the result.
+ */
+async function realSongCheck(sfPath: string, outDir: string, path: string): Promise<void> {
+  try {
+    const sf = await window.keyfall.readFile(sfPath)
+    if (sf) await loadSoundfontBytes(sf.data.buffer.slice(sf.data.byteOffset, sf.data.byteOffset + sf.data.byteLength) as ArrayBuffer, sf.name, null)
+    const f = await window.keyfall.readFile(path)
+    if (!f) throw new Error(`cannot read ${path}`)
+    await engine.init()
+    const buf = await engine.ctx!.decodeAudioData(f.data.buffer.slice(f.data.byteOffset, f.data.byteOffset + f.data.byteLength) as ArrayBuffer)
+    getState().loadSong(emptySong(), 'Real song', null)
+    const t0 = performance.now()
+    await importReferenceAudio(f.name, buf)
+    const song = getState().song
+    log('real song:', f.name, buf.duration.toFixed(1), 's · analysed in', ((performance.now() - t0) / 1000).toFixed(1), 's ·', getState().toast?.text)
+    const names = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
+    const bar = ticksPerBar(song)
+    log('real song: tempo', song.tempos[0].bpm.toFixed(1), song.tempos.length > 1 ? `(${song.tempos.length} tempo changes)` : '', '· chords', song.chords.slice(0, 16).map((c) => `${c.root < 0 ? 'N' : names[c.root] + (c.minor ? 'm' : '')}@${(c.tick / bar + 1).toFixed(1)}`).join(' '))
+    log('real song: sections', song.sections.map((x) => `${x.name}@${x.bar + 1}`).join(' '), '· drum hits', song.reference?.drums.kick.length, song.reference?.drums.snare.length, song.reference?.drums.hat.length)
+    const t1 = performance.now()
+    await separateReference()
+    const after = getState().song
+    const melody = after.tracks.find((t) => t.role === 'melody')
+    const stems = after.reference?.stems
+    const vocalsTake = after.audioTracks.find((t) => t.id === stems?.vocals)?.clips[0]?.takes[0]
+    const instTake = after.audioTracks.find((t) => t.id === stems?.instrumental)?.clips[0]?.takes[0]
+    const rms = (id?: string): string => {
+      const t = id ? getTake(id) : undefined
+      if (!t) return '?'
+      let e = 0
+      for (const v of t.pcm) e += v * v
+      return Math.sqrt(e / t.pcm.length).toFixed(4)
+    }
+    const pitches = (melody?.notes ?? []).map((n) => n.pitch)
+    log('real song: separated in', ((performance.now() - t1) / 1000).toFixed(1), 's · vocals rms', rms(vocalsTake), '· instrumental rms', rms(instTake), '· sung notes', pitches.length, pitches.length ? `(range ${Math.min(...pitches)}-${Math.max(...pitches)}, first: ${pitches.slice(0, 12).join(' ')})` : '')
+    if (outDir) {
+      const w = await window.keyfall.readFile(path)
+      void w
+      const vt = vocalsTake ? getTake(vocalsTake) : undefined
+      if (vt) await window.keyfall.writeFile(`${outDir}/real-vocals.wav`, takeWavFor(vt))
+      getState().set({ drawerOpen: true, drawerTab: 'reference' })
+      engine.seek(after.chords[4] ? tempoMap(after).tickToSec(after.chords[4].tick) : 20)
+      await wait(900)
+      await window.keyfall.selftestCapture(`${outDir}/real-a.png`)
+      await wait(900)
+      await window.keyfall.selftestCapture(`${outDir}/real.png`)
+    }
+  } catch (err) {
+    log('FAILED', err instanceof Error ? err.stack : String(err))
+  }
+}
+
+function takeWavFor(t: { pcm: Float32Array; rate: number; right?: Float32Array }): Uint8Array {
+  return encodeWavMono(t.pcm, t.rate, t.right)
 }

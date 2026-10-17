@@ -8,7 +8,9 @@ import { copyReferenceGroove, generateDrums } from '../state/arrange'
 import { setSongKey, updateTrack } from '../state/edit'
 import { getState, useStore } from '../state/store'
 import { updateAudioTrack } from '../state/vocalEdit'
-import { Field, Slider } from './controls'
+import { Choice, Field, Slider } from './controls'
+import { listenTo, listening, separateReference, type Listen } from '../actions/separate'
+import { setShowPitch } from '../audio/vocalRecorder'
 
 const NOTE = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
 const SPEEDS = [1, 0.9, 0.8, 0.75, 0.7, 0.6, 0.5]
@@ -20,6 +22,8 @@ export function ReferencePanel(): React.JSX.Element {
   const ref = song.reference
   const track = referenceTrack(song)
   const pad = song.tracks.find((t) => t.role === 'chords')
+  const melody = song.tracks.find((t) => t.role === 'melody')
+  const showPitch = useStore((s) => s.showPitch)
   const [style, setStyle] = useState('lofi')
   const bpm = song.tempos[0]?.bpm ?? 120
   const chordCount = song.chords.filter((c) => c.root >= 0).length
@@ -76,6 +80,48 @@ export function ReferencePanel(): React.JSX.Element {
             ))}
           </select>
         </Field>
+      </section>
+
+      <section className="psection">
+        <div className="ptitle">Vocals</div>
+        {!ref.stems ? (
+          <>
+            <p className="drawer-hint tight">
+              Split the song into its vocals and instrumental. The sung notes then fall on the keys like the piano does, the instrumental can play on its own as a
+              backing track, and you can see your pitch next to the song’s. The first time downloads the separator (67 MB); a three-minute song takes about a minute.
+            </p>
+            <div className="prow-buttons">
+              <button className="btn primary" onClick={() => void separateReference()}>Separate the vocals</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <Field label="Listen to">
+              <Choice
+                label="Listen to"
+                value={listening(song)}
+                onChange={(v: Listen) => listenTo(v)}
+                options={[
+                  { value: 'song', label: 'Full song' },
+                  { value: 'instrumental', label: 'Instrumental' },
+                  { value: 'vocals', label: 'Vocals' }
+                ]}
+              />
+            </Field>
+            {melody && (
+              <label className="check">
+                <input id="ref-show-melody" type="checkbox" checked={!melody.muted} onChange={(e) => updateTrack(melody.id, { muted: !e.target.checked })} /> Show the notes to sing ({melody.notes.length})
+              </label>
+            )}
+            <label className="check">
+              <input id="ref-show-pitch" type="checkbox" checked={showPitch} onChange={(e) => void setShowPitch(e.target.checked)} /> Show my pitch on the keys
+            </label>
+            <p className="drawer-hint tight">To have autotune follow the song’s melody, set a vocal track’s autotune to Follow chords → Melody.</p>
+            <div className="prow-buttons">
+              <button className="btn" onClick={() => void separateReference()}>Separate again</button>
+            </div>
+          </>
+        )}
       </section>
 
       <section className="psection">

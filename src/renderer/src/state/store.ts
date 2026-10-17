@@ -62,6 +62,8 @@ export interface EditorState {
   latencyMs: number
   guideVolume: number
   vocalRec: VocalRecording | null
+  /** show the pitch you're singing on the keys (opens the microphone) */
+  showPitch: boolean
   /** the drum pattern the Beat tab is editing */
   beatPattern: number
   playing: boolean
@@ -150,6 +152,7 @@ export const useStore = create<EditorState>()((set, get) => ({
   latencyMs: loadPref('latencyMs', 0),
   guideVolume: loadPref('guideVolume', 0.3),
   vocalRec: null,
+  showPitch: false,
   beatPattern: -1,
   playing: false,
   recording: false,

@@ -37,13 +37,13 @@ function runAnalysis(pcm: Float32Array, onProgress: (p: number) => void): Promis
       if (m.type === 'progress') return onProgress(m.value)
       worker.terminate()
       if (m.type === 'done') resolve(m.analysis)
-      else reject(new Error(m.message))
+      else reject(new Error(m.type === 'error' ? m.message : 'Unexpected analysis result'))
     }
     worker.onerror = (e) => {
       worker.terminate()
       reject(new Error(e.message))
     }
-    worker.postMessage({ pcm, rate: ANALYSIS_RATE }, [pcm.buffer])
+    worker.postMessage({ kind: 'song', pcm, rate: ANALYSIS_RATE }, [pcm.buffer])
   })
 }
 
@@ -135,7 +135,9 @@ export function applyReference(song: Song, name: string, takeId: string, duratio
     else if (!last || last.root !== c.root || last.minor !== c.minor) chords.push({ tick, root: c.root, minor: c.minor })
   }
   const sections = a.sections.map((s) => ({ id: newId(), name: s.name, bar: s.bar + lead }))
-  if (lead > 0 && !sections.some((s) => s.bar === 0)) sections.unshift({ id: newId(), name: 'Intro', bar: 0 })
+  // the pickup bars belong to an intro: stretch the song's own intro back over them, or add one
+  if (lead > 0 && sections[0]?.name === 'Intro') sections[0].bar = 0
+  else if (lead > 0) sections.unshift({ id: newId(), name: 'Intro', bar: 0 })
 
   const next: Song = {
     ...song,

@@ -4,6 +4,7 @@ import { tempoMap } from '../model/song'
 import { getState } from '../state/store'
 import { addRecordedPasses } from '../state/vocalEdit'
 import { engine } from './engine'
+import { detectPitch, hzToMidi } from './pitch'
 import { addTake } from './takes'
 
 /**
@@ -38,6 +39,23 @@ let session: VocalSession | null = null
 let recordFrom = 0
 let level = 0
 let tone: { osc: OscillatorNode; gain: GainNode } | null = null
+/** the last ~85 ms of mic input */
+const recent = new Float32Array(4096)
+let pitchCache = { at: 0, midi: null as number | null }
+
+/**
+ * The pitch being sung right now (MIDI, fractional), or null when silent or unpitched. Worked out
+ * from the latest mic input at most 20 times a second.
+ */
+export function livePitch(): number | null {
+  if (!mic || !engine.ctx) return null
+  const now = performance.now()
+  if (now - pitchCache.at < 50) return pitchCache.midi
+  const f0 = detectPitch(recent, engine.ctx.sampleRate)
+  const voiced = [...f0].filter((f) => f > 0)
+  pitchCache = { at: now, midi: voiced.length >= 2 ? hzToMidi(voiced[voiced.length >> 1]) : null }
+  return pitchCache.midi
+}
 
 /**
  * Loads the capture worklet. It ships as a plain file next to the page (public/), because the
@@ -73,6 +91,10 @@ export async function openMic(deviceId = ''): Promise<void> {
     for (const v of e.data.data) peak = Math.max(peak, Math.abs(v))
     level = Math.max(peak, level * 0.97)
     if (capturing) chunks.push(e.data)
+    // keep the latest stretch of input for the live pitch display
+    const d = e.data.data
+    recent.copyWithin(0, d.length)
+    recent.set(d, recent.length - d.length)
   }
   const settings = stream.getAudioTracks()[0]?.getSettings() as MediaTrackSettings & { latency?: number }
   mic = { stream, node, deviceId, inputLatency: settings?.latency ?? 0.01 }
@@ -210,4 +232,17 @@ export function finishVocalCapture(): number {
     addRecordedPasses(trackId, [{ tick: Math.round(map.secToTick(p.song)), duration: p.pcm.length / rate, takeId }])
   })
   return s.kind === 'harmony' ? Math.min(passes.length, s.trackIds.length) : passes.length
+}
+
+/** Turns the live pitch display on (opening the microphone) or off. */
+export async function setShowPitch(on: boolean): Promise<void> {
+  if (on) {
+    try {
+      await openMic(getState().micId)
+    } catch (err) {
+      getState().notify(`Couldn't open the microphone. ${err instanceof Error ? err.message : ''}`, 'error')
+      return
+    }
+  }
+  getState().set({ showPitch: on })
 }

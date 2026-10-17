@@ -94,6 +94,8 @@ export interface ReferenceInfo {
   drums: { kick: number[]; snare: number[]; hat: number[] }
   /** loudness per bar, 0..1, for fitting a beat to quiet and busy parts */
   barEnergy: number[]
+  /** audio tracks holding the song split into vocals and instrumental, once separated */
+  stems?: { vocals: number; instrumental: number }
 }
 
 export const PALETTE = [
