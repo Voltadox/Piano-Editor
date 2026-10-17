@@ -161,6 +161,11 @@ export async function runSelftest(arg: string): Promise<void> {
       },
       (e) => log('microphone did not open:', e instanceof Error ? `${e.name}: ${e.message}` : String(e))
     )
+    // loading a soundfont while the backup loads must not leave either one stuck "Loading…"
+    await applyBackupFont(false)
+    const both = Promise.all([applyBackupFont(true), loadSoundfontBytes(sf.data.buffer.slice(sf.data.byteOffset, sf.data.byteOffset + sf.data.byteLength) as ArrayBuffer, sf.name, null)])
+    const settled = await Promise.race([both.then(() => true), wait(15000).then(() => false)])
+    log('soundfont + backup loaded together:', settled ? 'both finished' : 'STUCK', '· still loading:', getState().sfLoading)
     // the bundled backup soundfont should supply drums behind the user's piano soundfont
     await applyBackupFont(true)
     {

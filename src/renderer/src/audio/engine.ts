@@ -109,29 +109,44 @@ class Engine {
     return this.initPromise
   }
 
-  async loadSoundfont(bytes: ArrayBuffer): Promise<void> {
-    await this.init()
-    this.soundfontBytes = bytes.slice(0)
-    await this.synth!.soundBankManager.addSoundBank(bytes, 'main')
-    this.orderBanks()
-    this.programs.clear()
-    if (this.song) this.applyPrograms(this.song)
+  /**
+   * Runs sound-bank changes one at a time. The synth library keeps a single reply slot per kind of
+   * request, so two overlapping loads leave the first one waiting forever.
+   */
+  private banks: Promise<unknown> = Promise.resolve()
+  private oneAtATime<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.banks.then(fn, fn)
+    this.banks = run.catch(() => undefined)
+    return run
+  }
+
+  loadSoundfont(bytes: ArrayBuffer): Promise<void> {
+    return this.oneAtATime(async () => {
+      await this.init()
+      this.soundfontBytes = bytes.slice(0)
+      await this.synth!.soundBankManager.addSoundBank(bytes, 'main')
+      this.orderBanks()
+      this.programs.clear()
+      if (this.song) this.applyPrograms(this.song)
+    })
   }
 
   /** Loads (or with null, removes) the backup soundfont that sits behind the user's one. */
-  async setBackup(bytes: ArrayBuffer | null): Promise<void> {
-    await this.init()
-    const manager = this.synth!.soundBankManager
-    if (bytes) {
-      this.backupBytes = bytes.slice(0)
-      await manager.addSoundBank(bytes, 'backup')
-    } else if (this.backupBytes) {
-      this.backupBytes = null
-      await manager.deleteSoundBank('backup')
-    }
-    this.orderBanks()
-    this.programs.clear()
-    if (this.song) this.applyPrograms(this.song)
+  setBackup(bytes: ArrayBuffer | null): Promise<void> {
+    return this.oneAtATime(async () => {
+      await this.init()
+      const manager = this.synth!.soundBankManager
+      if (bytes) {
+        this.backupBytes = bytes.slice(0)
+        await manager.addSoundBank(bytes, 'backup')
+      } else if (this.backupBytes) {
+        this.backupBytes = null
+        await manager.deleteSoundBank('backup')
+      }
+      this.orderBanks()
+      this.programs.clear()
+      if (this.song) this.applyPrograms(this.song)
+    })
   }
 
   /** The user's soundfont always wins; the backup only supplies instruments it lacks. */
