@@ -6,7 +6,7 @@ import { recordVocals } from '../actions/transport'
 import { VOCAL_PRESETS, type AudioTrack, type GuideVoice } from '../model/audio'
 import { songKey } from '../model/guide'
 import { keyName } from '../model/harmony'
-import { tempoMap, ticksPerBar, ticksPerBeat } from '../model/song'
+import { tempoMap, ticksPerBar, ticksPerBeat, type Song } from '../model/song'
 import { setSongKey } from '../state/edit'
 import { savePref } from '../state/prefs'
 import { getState, useStore } from '../state/store'
@@ -15,6 +15,20 @@ import { Choice, Field, Slider } from './controls'
 import * as I from './icons'
 
 const NOTE = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
+
+/** Lines a voice can follow: the song's own melody and harmonies when a reference has them, then chord tones. */
+function availableVoices(song: Song): GuideVoice[] {
+  const has = (role: string): boolean => song.tracks.some((t) => t.role === role)
+  return [
+    ...(has('melody') ? ['melody' as const] : []),
+    ...(has('harmony-above') ? ['above' as const] : []),
+    ...(has('harmony-below') ? ['below' as const] : []),
+    'root',
+    'third',
+    'fifth',
+    'octave'
+  ]
+}
 const REGISTERS = [
   { value: 50, label: 'Low' },
   { value: 57, label: 'Mid' },
@@ -178,7 +192,7 @@ function TrackEditor({ t }: { t: AudioTrack }): React.JSX.Element {
                 label="Chord note"
                 value={t.tune.voice}
                 onChange={(voice: GuideVoice) => tune({ voice })}
-                options={(song.tracks.some((x) => x.role === 'melody') ? ['melody', 'root', 'third', 'fifth', 'octave'] : ['root', 'third', 'fifth', 'octave'] as GuideVoice[]).map((v) => ({
+                options={availableVoices(song).map((v) => ({
                   value: v as GuideVoice,
                   label: voiceName(v as GuideVoice)
                 }))}
@@ -282,7 +296,8 @@ function HarmonySection(): React.JSX.Element {
   const [voices, setVoices] = useState<GuideVoice[]>(['root', 'third', 'fifth'])
   const [centre, setCentre] = useState(57)
   const toggle = (v: GuideVoice): void => setVoices((vs) => (vs.includes(v) ? vs.filter((x) => x !== v) : [...vs, v]))
-  const order: GuideVoice[] = ['root', 'third', 'fifth', 'octave']
+  const song = useStore((s) => s.song)
+  const order = availableVoices(song).filter((v) => v !== 'melody')
   const busy = recording?.kind === 'harmony'
   return (
     <section className="psection harmony">

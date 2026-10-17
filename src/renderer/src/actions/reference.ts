@@ -229,6 +229,7 @@ export function scaleTempo(factor: 2 | 0.5): void {
       })),
       audioTracks: song.audioTracks.map((t) => ({ ...t, clips: t.clips.map((c) => ({ ...c, tick: k(c.tick) })) })),
       chords: song.chords.map((c) => ({ ...c, tick: k(c.tick) })),
+      lyrics: song.lyrics.map((l) => ({ ...l, tick: k(l.tick), end: k(l.end) })),
       sections: song.sections.map((s) => ({ ...s, bar: Math.round(s.bar * factor) }))
     }
   })

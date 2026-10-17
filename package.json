@@ -15,6 +15,7 @@
   "license": "UNLICENSED",
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",
+    "@huggingface/transformers": "4.3.0",
     "@tonejs/midi": "^2.0.28",
     "fflate": "0.8.2",
     "mediabunny": "^1.61.6",
@@ -49,7 +50,8 @@
       "out/**/*",
       "!node_modules/onnxruntime-node/bin/napi-v6/linux/**",
       "!node_modules/onnxruntime-node/bin/napi-v6/darwin/**",
-      "!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**"
+      "!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**",
+      "!node_modules/onnxruntime-web/**"
     ],
     "fileAssociations": [
       {
@@ -67,11 +69,17 @@
       {
         "from": "resources/soundfonts",
         "to": "soundfonts"
+      },
+      {
+        "from": "resources/models",
+        "to": "models"
       }
     ],
     "asarUnpack": [
       "node_modules/onnxruntime-node/**",
-      "node_modules/onnxruntime-common/**"
+      "node_modules/onnxruntime-common/**",
+      "node_modules/sharp/**",
+      "node_modules/@img/**"
     ]
   }
 }

@@ -9,7 +9,7 @@ import { vocalLines } from '../audio/vocals'
 import { melodyPitchAt } from '../model/guide'
 import { chordLabel } from '../actions/reference'
 import { countdown, viewClock } from '../actions/transport'
-import { chordPillAt, drawScene, hitNote, keyLayout, pianoKeyLength, type Scene } from './draw'
+import { chordPillAt, drawScene, hitNote, keyLayout, lyricsAt, pianoKeyLength, type Scene } from './draw'
 
 type Box = { x0: number; y0: number; x1: number; y1: number }
 
@@ -65,6 +65,7 @@ export function FallView(): React.JSX.Element {
       vocals: clock.songVisible ? vocalLines(st.song) : undefined,
       sections: st.song.sections,
       livePitch: livePitchFor(st),
+      lyrics: st.song.lyrics.length ? lyricsAt(st.song.lyrics.map((l) => ({ start: map.tickToSec(l.tick), end: map.tickToSec(l.end), text: l.text })), clock.time) : null,
       chordMarks: clock.songVisible ? st.song.chords.map((c, index) => ({ sec: map.tickToSec(c.tick), label: chordLabel(c), index })) : undefined,
       countdown: countdown(),
       theme: st.theme,

@@ -82,7 +82,15 @@ export function splitClipAt(trackId: number, clipId: number, tick: number): bool
   return true
 }
 
-const VOICE_NAMES: Record<GuideVoice, string> = { root: 'Root', third: 'Third', fifth: 'Fifth', octave: 'Octave up', melody: 'Melody' }
+const VOICE_NAMES: Record<GuideVoice, string> = {
+  root: 'Root',
+  third: 'Third',
+  fifth: 'Fifth',
+  octave: 'Octave up',
+  melody: 'Melody',
+  above: 'Harmony above',
+  below: 'Harmony below'
+}
 
 /**
  * The tracks a harmony stack records into, one per voice, reused if they exist. Each gets its own
@@ -94,7 +102,9 @@ export function harmonyTracks(voices: GuideVoice[], centre: number): number[] {
     third: { pan: -0.45, detune: 6 },
     fifth: { pan: 0.45, detune: -7 },
     octave: { pan: 0.2, detune: 4 },
-    melody: { pan: 0, detune: 0 }
+    melody: { pan: 0, detune: 0 },
+    above: { pan: -0.4, detune: 5 },
+    below: { pan: 0.4, detune: -5 }
   }
   return voices.map((v) => {
     const name = `Harmony · ${VOICE_NAMES[v]}`

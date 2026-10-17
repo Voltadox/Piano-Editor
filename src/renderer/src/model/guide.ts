@@ -80,9 +80,9 @@ const nearest = (pc: number, centre: number): number => {
   return centre - base > 6 ? base + 12 : base
 }
 
-/** The reference melody's note sounding at a song time, if the song has one. */
-export function melodyPitchAt(song: Song, sec: number): number | null {
-  const t = song.tracks.find((x) => x.role === 'melody')
+/** The reference melody's (or a harmony line's) note sounding at a song time, if the song has one. */
+export function melodyPitchAt(song: Song, sec: number, role: Track['role'] = 'melody'): number | null {
+  const t = song.tracks.find((x) => x.role === role)
   if (!t) return null
   const times = trackTimes(t, tempoMap(song))
   let i = lowerBound(times.start, sec + 1e-6) - 1
@@ -94,6 +94,8 @@ export function melodyPitchAt(song: Song, sec: number): number | null {
 export function guidePitchAt(song: Song, sec: number, voice: GuideVoice, centre: number): number | null {
   if (sec < 0) return null
   if (voice === 'melody') return melodyPitchAt(song, sec)
+  if (voice === 'above') return melodyPitchAt(song, sec, 'harmony-above')
+  if (voice === 'below') return melodyPitchAt(song, sec, 'harmony-below')
   const chords = chordTimeline(song)
   const beat = Math.floor(tempoMap(song).secToTick(sec) / ticksPerBeat(song))
   const chord = chords[Math.min(chords.length - 1, beat)]

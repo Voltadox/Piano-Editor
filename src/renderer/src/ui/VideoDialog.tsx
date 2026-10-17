@@ -73,6 +73,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
 export function VideoDialog(): React.JSX.Element | null {
   const open = useStore((s) => s.videoOpen)
   const theme = useStore((s) => s.theme)
+  const hasLyrics = useStore((s) => s.song.lyrics.length > 0)
   const fileName = useStore((s) => s.fileName)
   const sfName = useStore((s) => s.sfName ?? (s.backupLoaded ? 'GeneralUser GS' : null))
   const [v, setV] = useState<VideoSettings>(() => loadPref('video', DEFAULT_VIDEO))
@@ -112,6 +113,14 @@ export function VideoDialog(): React.JSX.Element | null {
             <Row label="Frame rate">
               <Seg label="Frame rate" value={v.fps} onChange={(fps) => update({ fps })} options={[{ value: 60, label: '60 fps' }, { value: 30, label: '30 fps' }]} />
             </Row>
+
+            {hasLyrics && (
+              <Row label="Lyrics">
+                <label className="check">
+                  <input id="vlyrics" type="checkbox" checked={v.lyrics} onChange={(e) => update({ lyrics: e.target.checked })} /> Show the lyrics karaoke-style
+                </label>
+              </Row>
+            )}
 
             <div className="vsection">
               <label className="check">

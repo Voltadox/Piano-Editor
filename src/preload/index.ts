@@ -23,6 +23,8 @@ const api = {
   backupSoundfont: (): Promise<Uint8Array | null> => ipcRenderer.invoke('backup-soundfont'),
   separateVocals: (left: Float32Array, right: Float32Array): Promise<{ left: Float32Array; right: Float32Array }> =>
     ipcRenderer.invoke('separate-vocals', left, right),
+  transcribeNotes: (pcm: Float32Array): Promise<{ start: number; end: number; pitch: number; amp: number }[]> => ipcRenderer.invoke('transcribe-notes', pcm),
+  transcribeLyrics: (pcm16k: Float32Array): Promise<{ start: number; end: number; text: string }[]> => ipcRenderer.invoke('transcribe-lyrics', pcm16k),
   onSeparateProgress: (fn: (p: number) => void): (() => void) => {
     const h = (_e: unknown, p: number): void => fn(p)
     ipcRenderer.on('separate-progress', h)

@@ -220,6 +220,9 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg3); paddin
 .barcell.on { border-color: var(--accent); background: var(--accent-soft); }
 .barcell.empty { color: var(--muted); }
 .sf-list.presets { max-height: 260px; }
+.lyric-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 320px; overflow-y: auto; }
+.lyric-list li { display: flex; align-items: center; gap: 8px; }
+.lyric-list .clip-go { font-family: var(--mono); font-size: 11px; min-width: 34px; }
 .bg-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; padding: 4px 6px 6px; }
 .menu .bg-thumb { display: grid; gap: 3px; padding: 4px; border-radius: 8px; border: 2px solid transparent; background: var(--bg1); text-align: left; }
 .menu .bg-thumb img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 5px; display: block; }

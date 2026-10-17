@@ -95,10 +95,11 @@ function remap(song: Song, fn: (bar: number) => number[]): Song {
     clips: t.clips.flatMap((c) => place(c.tick).map((tick, i) => ({ ...c, tick, id: i ? newId() : c.id }))).sort((a, b) => a.tick - b.tick)
   }))
   const chords = song.chords.flatMap((c) => place(c.tick).map((tick) => ({ ...c, tick }))).sort((x, y) => x.tick - y.tick)
+  const lyrics = song.lyrics.flatMap((l) => place(l.tick).map((tick) => ({ ...l, tick, end: l.end + (tick - l.tick) }))).sort((x, y) => x.tick - y.tick)
   const sections = song.sections
     .flatMap((s) => fn(s.bar).map((bar, i) => ({ ...s, bar, id: i ? newId() : s.id, name: i ? `${s.name} 2` : s.name })))
     .sort((a, b) => a.bar - b.bar)
-  return { ...song, tracks, audioTracks, sections, chords }
+  return { ...song, tracks, audioTracks, sections, chords, lyrics }
 }
 
 /** Plays a section twice: a copy goes right after it and everything later moves along. */

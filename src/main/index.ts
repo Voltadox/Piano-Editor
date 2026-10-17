@@ -196,13 +196,13 @@ const jobs = new Map<number, { sender: WebContents; resolve: (v: unknown) => voi
 function getSeparator(): UtilityProcess {
   if (separator) return separator
   separator = utilityProcess.fork(join(__dirname, 'separator.js'), [], { serviceName: 'Keyfall vocal separator' })
-  separator.on('message', (m: { id: number; type: string; value?: number; message?: string; left?: Float32Array; right?: Float32Array }) => {
+  separator.on('message', (m: { id: number; type: string; value?: number; message?: string; left?: Float32Array; right?: Float32Array; notes?: unknown }) => {
     const job = jobs.get(m.id)
     if (!job) return
     if (m.type === 'progress') job.sender.send('separate-progress', m.value)
     else {
       jobs.delete(m.id)
-      if (m.type === 'done') job.resolve({ left: m.left, right: m.right })
+      if (m.type === 'done') job.resolve(m.notes ?? { left: m.left, right: m.right })
       else job.reject(new Error(m.message))
     }
   })
@@ -222,6 +222,28 @@ ipcMain.handle('separate-vocals', async (e, left: Float32Array, right: Float32Ar
   return new Promise((resolve, reject) => {
     jobs.set(id, { sender: e.sender, resolve, reject })
     getSeparator().postMessage({ id, left, right, modelPath: path })
+  })
+})
+
+/** Basic Pitch (Apache 2.0) ships with Keyfall; it finds every note in a recording, chords included. */
+const notesModelPath = (): string =>
+  app.isPackaged ? join(process.resourcesPath, 'models', 'basic-pitch.onnx') : join(app.getAppPath(), 'resources', 'models', 'basic-pitch.onnx')
+
+ipcMain.handle('transcribe-notes', async (e, pcm: Float32Array) => {
+  const id = nextJob++
+  return new Promise((resolve, reject) => {
+    jobs.set(id, { sender: e.sender, resolve, reject })
+    getSeparator().postMessage({ id, kind: 'transcribe', left: pcm, right: pcm, modelPath: notesModelPath() })
+  })
+})
+
+ipcMain.handle('transcribe-lyrics', async (e, pcm16k: Float32Array) => {
+  const cacheDir = join(app.getPath('userData'), 'models', 'whisper')
+  await mkdir(cacheDir, { recursive: true })
+  const id = nextJob++
+  return new Promise((resolve, reject) => {
+    jobs.set(id, { sender: e.sender, resolve, reject })
+    getSeparator().postMessage({ id, kind: 'lyrics', left: pcm16k, right: pcm16k, modelPath: cacheDir })
   })
 })
 

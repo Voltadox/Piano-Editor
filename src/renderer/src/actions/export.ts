@@ -21,7 +21,7 @@ import { audioAudible, tempoMap } from '../model/song'
 import RenderWorker from '../audio/render.worker?worker'
 import { getState } from '../state/store'
 import type { Song } from '../model/song'
-import { drawScene, pianoKeyLength } from '../view/draw'
+import { drawScene, lyricsAt, pianoKeyLength } from '../view/draw'
 import type { Theme } from '../view/theme'
 
 const SAMPLE_RATE = 48000
@@ -214,6 +214,8 @@ export interface VideoSettings {
   title: string
   artist: string
   caption: string
+  /** show the song's lyrics karaoke-style */
+  lyrics: boolean
 }
 
 export const DEFAULT_VIDEO: VideoSettings = {
@@ -223,7 +225,8 @@ export const DEFAULT_VIDEO: VideoSettings = {
   titleCard: true,
   title: '',
   artist: '',
-  caption: ''
+  caption: '',
+  lyrics: true
 }
 
 /** Seconds of empty stage before the first note, while the title card shows. */
@@ -261,6 +264,13 @@ export function drawVideoFrame(ctx: CanvasRenderingContext2D, f: VideoFrame): vo
     theme: f.theme,
     bgImage: f.bgImage,
     vocals: f.vocals,
+    lyrics:
+      f.settings.lyrics && f.song.lyrics.length
+        ? lyricsAt(
+            f.song.lyrics.map((l) => ({ start: tempoMap(f.song).tickToSec(l.tick), end: tempoMap(f.song).tickToSec(l.end), text: l.text })),
+            f.ts - VIDEO_LEAD
+          )
+        : null,
     presentation: true
   })
   if (f.settings.titleCard) drawTitle(ctx, f, f.settings.title.trim() || f.fileName)

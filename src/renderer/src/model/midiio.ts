@@ -53,7 +53,7 @@ export function parseMidiFile(bytes: Uint8Array): Song {
         .sort((a, b) => a.tick - b.tick)
     })
   })
-  return { ppq, tempos, timeSig, tracks, audioTracks: [], sections: [], key: null, chords: [] }
+  return { ppq, tempos, timeSig, tracks, audioTracks: [], sections: [], key: null, chords: [], lyrics: [] }
 }
 
 type WithoutDelta<T> = T extends unknown ? Omit<T, 'deltaTime'> : never

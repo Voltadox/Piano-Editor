@@ -3,7 +3,7 @@
 export type VocalPreset = 'clean' | 'dreamy' | 'underwater' | 'tape' | 'haze'
 
 /** Which line a harmony voice follows, built from the piano's chords. */
-export type GuideVoice = 'root' | 'third' | 'fifth' | 'octave' | 'melody'
+export type GuideVoice = 'root' | 'third' | 'fifth' | 'octave' | 'melody' | 'above' | 'below'
 
 export interface Tune {
   /** off, snap to the song's key, or follow a chord-tone guide line */

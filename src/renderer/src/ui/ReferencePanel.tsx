@@ -9,8 +9,11 @@ import { setSongKey, updateTrack } from '../state/edit'
 import { getState, useStore } from '../state/store'
 import { updateAudioTrack } from '../state/vocalEdit'
 import { Choice, Field, Slider } from './controls'
-import { listenTo, listening, separateReference, type Listen } from '../actions/separate'
+import { findLyrics, listenTo, listening, separateReference, setLyric, type Listen } from '../actions/separate'
 import { setShowPitch } from '../audio/vocalRecorder'
+import { recordVocals } from '../actions/transport'
+import type { GuideVoice } from '../model/audio'
+import { harmonyTracks } from '../state/vocalEdit'
 
 const NOTE = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
 const SPEEDS = [1, 0.9, 0.8, 0.75, 0.7, 0.6, 0.5]
@@ -23,6 +26,7 @@ export function ReferencePanel(): React.JSX.Element {
   const track = referenceTrack(song)
   const pad = song.tracks.find((t) => t.role === 'chords')
   const melody = song.tracks.find((t) => t.role === 'melody')
+  const harmonies = song.tracks.filter((t) => t.role === 'harmony-above' || t.role === 'harmony-below')
   const showPitch = useStore((s) => s.showPitch)
   const [style, setStyle] = useState('lofi')
   const bpm = song.tempos[0]?.bpm ?? 120
@@ -113,9 +117,30 @@ export function ReferencePanel(): React.JSX.Element {
                 <input id="ref-show-melody" type="checkbox" checked={!melody.muted} onChange={(e) => updateTrack(melody.id, { muted: !e.target.checked })} /> Show the notes to sing ({melody.notes.length})
               </label>
             )}
+            {harmonies.map((h) => (
+              <label key={h.id} className="check">
+                <input id={`ref-show-${h.role}`} type="checkbox" checked={!h.muted} onChange={(e) => updateTrack(h.id, { muted: !e.target.checked })} /> Show the {h.role === 'harmony-above' ? 'harmony above' : 'harmony below'} ({h.notes.length})
+              </label>
+            ))}
             <label className="check">
               <input id="ref-show-pitch" type="checkbox" checked={showPitch} onChange={(e) => void setShowPitch(e.target.checked)} /> Show my pitch on the keys
             </label>
+            {harmonies.length > 0 ? (
+              <div className="prow-buttons">
+                <button
+                  className="btn"
+                  title="One loop pass per harmony line, with a guide tone playing each line's notes"
+                  onClick={() => {
+                    const voices = harmonies.map((h) => (h.role === 'harmony-above' ? 'above' : 'below') as GuideVoice)
+                    void recordVocals({ kind: 'harmony', trackIds: harmonyTracks(voices, 57), voices, centre: 57 })
+                  }}
+                >
+                  Record over the song’s harmonies
+                </button>
+              </div>
+            ) : (
+              <p className="drawer-hint tight">No harmonies were heard in this song. The harmony stack in the Vocals tab can build some from the chords.</p>
+            )}
             <p className="drawer-hint tight">To have autotune follow the song’s melody, set a vocal track’s autotune to Follow chords → Melody.</p>
             <div className="prow-buttons">
               <button className="btn" onClick={() => void separateReference()}>Separate again</button>
@@ -123,6 +148,41 @@ export function ReferencePanel(): React.JSX.Element {
           </>
         )}
       </section>
+
+      {ref.stems && (
+        <section className="psection">
+          <div className="ptitle">
+            Lyrics {song.lyrics.length > 0 && <span className="meta">{song.lyrics.length} lines</span>}
+          </div>
+          {song.lyrics.length === 0 ? (
+            <>
+              <p className="drawer-hint tight">
+                Read the words from the separated vocals and show them over the stage while they’re sung. The first time downloads the lyrics model (about 80 MB).
+                Mumbled or heavily effected vocals come out patchy.
+              </p>
+              <div className="prow-buttons">
+                <button className="btn primary" onClick={() => void findLyrics()}>Find the lyrics</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <ul className="lyric-list">
+                {song.lyrics.map((l, i) => (
+                  <li key={i}>
+                    <button className="clip-go" title="Jump to this line" onClick={() => engine.seek(tempoMap(song).tickToSec(l.tick))}>
+                      {Math.floor(tempoMap(song).tickToSec(l.tick) / 60)}:{String(Math.floor(tempoMap(song).tickToSec(l.tick) % 60)).padStart(2, '0')}
+                    </button>
+                    <input id={`lyric-${i}`} className="text-in" value={l.text} aria-label={`Lyric line ${i + 1}`} onChange={(e) => setLyric(i, e.target.value)} />
+                  </li>
+                ))}
+              </ul>
+              <div className="prow-buttons">
+                <button className="btn" onClick={() => void findLyrics()}>Read them again</button>
+              </div>
+            </>
+          )}
+        </section>
+      )}
 
       <section className="psection">
         <div className="ptitle">Chords <span className="meta">{chordCount} changes</span></div>

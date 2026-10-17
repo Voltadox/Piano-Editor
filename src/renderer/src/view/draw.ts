@@ -104,6 +104,8 @@ export interface Scene {
   sections?: { bar: number; name: string }[]
   /** the chord lane: chord names at the time each chord starts */
   chordMarks?: { sec: number; label: string; index: number }[]
+  /** the lyric line being sung now and the next one */
+  lyrics?: { now: string | null; next: string | null } | null
   /** the pitch being sung now, and the reference note to aim for */
   livePitch?: { midi: number; target: number | null } | null
   /** pitches to mark on the keyboard (a Studio chord suggestion) */
@@ -402,6 +404,8 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
 
   if (sparks.length) drawSparks(ctx, sparks, keys, line, t, theme.glow)
 
+  if (s.lyrics && (s.lyrics.now || s.lyrics.next)) drawLyrics(ctx, s.lyrics, W, line, theme.accent, !!s.presentation)
+
   if (s.countdown) {
     const size = Math.round(Math.min(W, line) * 0.22)
     ctx.font = `700 ${size}px "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif`
@@ -538,6 +542,43 @@ function drawLivePitch(ctx: CanvasRenderingContext2D, keys: KeyLayout, line: num
     ctx.fillText(good ? 'on pitch' : `${cents > 0 ? '+' : ''}${cents}¢`, x, line - 2 * r - 10)
     ctx.textAlign = 'left'
   }
+}
+
+/** Karaoke-style lyrics near the top of the stage: the line being sung, and the next one under it. */
+function drawLyrics(ctx: CanvasRenderingContext2D, l: { now: string | null; next: string | null }, W: number, line: number, accent: string, presentation: boolean): void {
+  const size = Math.round(Math.max(18, Math.min(W / 34, line / 14)) * (presentation ? 1.25 : 1))
+  const y = Math.round(line * 0.2)
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.shadowColor = 'rgba(0,0,0,0.7)'
+  ctx.shadowBlur = size * 0.5
+  if (l.now) {
+    ctx.font = `600 ${size}px "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif`
+    ctx.fillStyle = '#f2f4fa'
+    ctx.fillText(l.now, W / 2, y, W * 0.9)
+    ctx.fillStyle = hexA(accent, 0.9)
+    const w = Math.min(W * 0.9, ctx.measureText(l.now).width)
+    ctx.fillRect(W / 2 - w / 2, y + size * 0.7, w, 2)
+  }
+  if (l.next) {
+    ctx.font = `500 ${Math.round(size * 0.7)}px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif`
+    ctx.fillStyle = 'rgba(228,231,242,0.55)'
+    ctx.fillText(l.next, W / 2, y + size * 1.6, W * 0.9)
+  }
+  ctx.shadowBlur = 0
+  ctx.shadowColor = 'transparent'
+  ctx.textAlign = 'left'
+}
+
+/** The lyric line under the playhead (or coming up next) and the one after it. */
+export function lyricsAt(lines: { start: number; end: number; text: string }[], t: number): { now: string | null; next: string | null } | null {
+  if (!lines.length) return null
+  const i = lines.findIndex((l) => l.end > t)
+  if (i < 0) return null
+  const cur = lines[i]
+  // show a line from just before it's sung
+  if (cur.start - t > 4) return { now: null, next: cur.text }
+  return { now: cur.text, next: lines[i + 1]?.text ?? null }
 }
 
 /** Dots on the keys of a suggested chord. */

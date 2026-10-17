@@ -42,7 +42,7 @@ export interface Track {
   /** a drum-machine track: its notes are generated from this */
   beat?: Beat
   /** a track Keyfall writes for you: the chord pad, or reference notes to sing */
-  role?: 'chords' | 'melody' | 'harmony'
+  role?: 'chords' | 'melody' | 'harmony-above' | 'harmony-below'
   /** shown on the stage but not played (reference notes to sing) */
   silent?: boolean
 }
@@ -84,6 +84,14 @@ export interface Song {
   chords: ChordMark[]
   /** what Keyfall heard in an imported reference song */
   reference?: ReferenceInfo
+  /** lyric lines, shown over the stage while they're sung */
+  lyrics: LyricLine[]
+}
+
+export interface LyricLine {
+  tick: number
+  end: number
+  text: string
 }
 
 export interface ReferenceInfo {
@@ -147,19 +155,20 @@ export function normalizeSong(song: Song): Song {
     audioTracks: song.audioTracks ?? [],
     sections: song.sections ?? [],
     key: song.key ?? null,
-    chords: song.chords ?? []
+    chords: song.chords ?? [],
+    lyrics: song.lyrics ?? []
   }
 }
 
 export function emptySong(): Song {
-  const song: Song = { ppq: 480, tempos: [{ tick: 0, bpm: 120 }], timeSig: [4, 4], tracks: [], audioTracks: [], sections: [], key: null, chords: [] }
+  const song: Song = { ppq: 480, tempos: [{ tick: 0, bpm: 120 }], timeSig: [4, 4], tracks: [], audioTracks: [], sections: [], key: null, chords: [], lyrics: [] }
   song.tracks.push(newTrack(song, 'Piano'))
   return song
 }
 
 /** A short two-hand loop so the editor opens with something to look at. */
 export function demoSong(): Song {
-  const song: Song = { ppq: 480, tempos: [{ tick: 0, bpm: 100 }], timeSig: [4, 4], tracks: [], audioTracks: [], sections: [], key: null, chords: [] }
+  const song: Song = { ppq: 480, tempos: [{ tick: 0, bpm: 100 }], timeSig: [4, 4], tracks: [], audioTracks: [], sections: [], key: null, chords: [], lyrics: [] }
   const left = newTrack(song, 'Left hand')
   song.tracks.push(left)
   const right = newTrack(song, 'Right hand')

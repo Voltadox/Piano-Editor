@@ -15,7 +15,7 @@ import { closeMic, loadRecorderWorklet, micLevel, openMic } from './audio/vocalR
 import { processAll } from './audio/vocals'
 import { addSection, copyReferenceGroove, duplicateSection, generateDrums, moveSection } from './state/arrange'
 import { chordLabel, importReferenceAudio, keyLabel, setChordAt } from './actions/reference'
-import { listenTo, separateReference } from './actions/separate'
+import { findLyrics, listenTo, separateReference } from './actions/separate'
 import { addAudioTrack, addRecordedPasses } from './state/vocalEdit'
 import { selectAll, selectionSustained, setSustain } from './state/edit'
 import { writeMidiFile } from './model/midiio'
@@ -480,13 +480,17 @@ async function realSongCheck(sfPath: string, outDir: string, path: string): Prom
     }
     const pitches = (melody?.notes ?? []).map((n) => n.pitch)
     log('real song: separated in', ((performance.now() - t1) / 1000).toFixed(1), 's · vocals rms', rms(vocalsTake), '· instrumental rms', rms(instTake), '· sung notes', pitches.length, pitches.length ? `(range ${Math.min(...pitches)}-${Math.max(...pitches)}, first: ${pitches.slice(0, 12).join(' ')})` : '')
+    log('real song: harmony lines', after.tracks.filter((t) => t.role?.startsWith('harmony')).map((t) => `${t.name}: ${t.notes.length} notes ${t.notes.slice(0, 6).map((n) => n.pitch).join(' ')}`).join(' · ') || 'none', '·', getState().toast?.text)
+    const t2 = performance.now()
+    await findLyrics()
+    const lyr = getState().song.lyrics
+    const m3 = tempoMap(getState().song)
+    log('real song: lyrics in', ((performance.now() - t2) / 1000).toFixed(1), 's ·', lyr.length, 'lines · first:', lyr.slice(0, 4).map((l) => `[${m3.tickToSec(l.tick).toFixed(1)}s] ${l.text}`).join(' | '))
     if (outDir) {
-      const w = await window.keyfall.readFile(path)
-      void w
       const vt = vocalsTake ? getTake(vocalsTake) : undefined
       if (vt) await window.keyfall.writeFile(`${outDir}/real-vocals.wav`, takeWavFor(vt))
       getState().set({ drawerOpen: true, drawerTab: 'reference' })
-      engine.seek(after.chords[4] ? tempoMap(after).tickToSec(after.chords[4].tick) : 20)
+      engine.seek(lyr[1] ? tempoMap(getState().song).tickToSec(lyr[1].tick) + 0.5 : 20)
       await wait(900)
       await window.keyfall.selftestCapture(`${outDir}/real-a.png`)
       await wait(900)
