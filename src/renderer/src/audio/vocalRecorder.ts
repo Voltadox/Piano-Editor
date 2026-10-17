@@ -4,7 +4,6 @@ import { tempoMap } from '../model/song'
 import { getState } from '../state/store'
 import { addRecordedPasses } from '../state/vocalEdit'
 import { engine } from './engine'
-import workletUrl from './recorder.worklet.js?url'
 import { addTake } from './takes'
 
 /**
@@ -40,17 +39,29 @@ let recordFrom = 0
 let level = 0
 let tone: { osc: OscillatorNode; gain: GainNode } | null = null
 
+/**
+ * Loads the capture worklet. It ships as a plain file next to the page (public/), because the
+ * page's security policy blocks scripts from data: URLs, which is what a bundled tiny file becomes.
+ */
+export async function loadRecorderWorklet(): Promise<void> {
+  await engine.init()
+  workletReady ??= engine.ctx!.audioWorklet.addModule(new URL('recorder.worklet.js', document.baseURI).href).catch((err) => {
+    workletReady = null
+    throw err
+  })
+  await workletReady
+}
+
 /** Opens the microphone (or switches device). Throws if access is refused or no mic exists. */
 export async function openMic(deviceId = ''): Promise<void> {
   await engine.init()
   const ctx = engine.ctx!
   if (mic && mic.deviceId === deviceId) return
   closeMic()
+  await loadRecorderWorklet()
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { deviceId: deviceId ? { exact: deviceId } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }
   })
-  workletReady ??= ctx.audioWorklet.addModule(workletUrl)
-  await workletReady
   const source = ctx.createMediaStreamSource(stream)
   const node = new AudioWorkletNode(ctx, 'keyfall-recorder', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] })
   // the worklet has to be pulled by the graph to run; it outputs silence

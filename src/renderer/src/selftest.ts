@@ -9,6 +9,7 @@ import { packProject, unpackProject } from './actions/project'
 import { usePresetBackground } from './actions/look'
 import { detectPitch, pitchShifts, psola } from './audio/pitch'
 import { addTake, getTake } from './audio/takes'
+import { closeMic, loadRecorderWorklet, micLevel, openMic } from './audio/vocalRecorder'
 import { processAll } from './audio/vocals'
 import { addSection, duplicateSection, generateDrums, moveSection } from './state/arrange'
 import { addAudioTrack, addRecordedPasses } from './state/vocalEdit'
@@ -144,6 +145,20 @@ export async function runSelftest(arg: string): Promise<void> {
     await window.keyfall.selftestCapture(`${outDir}/window-video.png`)
     getState().set({ videoOpen: false })
 
+    // the mic capture worklet must load under the page's security policy
+    await loadRecorderWorklet().then(
+      () => log('recorder worklet loaded'),
+      (e) => log('recorder worklet FAILED to load', e instanceof Error ? e.message : String(e))
+    )
+    // and the microphone should open through it (if this computer has one)
+    await openMic().then(
+      async () => {
+        await wait(500)
+        log('microphone opened · input level', micLevel().toFixed(4))
+        closeMic()
+      },
+      (e) => log('microphone did not open:', e instanceof Error ? `${e.name}: ${e.message}` : String(e))
+    )
     log('soundfont presets', getState().sfPresets.length, getState().sfPresets.slice(0, 3).map((p) => `${p.name} ${p.bank}:${p.program}`).join(', '))
 
     // autotune: a hummed "voice" 40 cents flat of A3 with vibrato, tuned to C major
