@@ -30,12 +30,11 @@ const TAIL = 2.5
 class Cancelled extends Error {}
 
 function render(
-  req: Omit<RenderRequest, 'soundfont' | 'events' | 'duration'>,
+  req: Omit<RenderRequest, 'soundfont' | 'backup' | 'events' | 'duration'>,
   onProgress: (p: number) => void,
   signal: AbortSignal
 ): Promise<Extract<RenderReply, { type: 'done' | 'pcm' }>> {
-  const sf = engine.soundfontBytes
-  if (!sf) return Promise.reject(new Error('Load a soundfont first. Exports are rendered through it.'))
+  if (!engine.hasSound) return Promise.reject(new Error('Load a soundfont first. Exports are rendered through it.'))
   const song = getState().song
   const built = buildEvents(song)
   const events = built.events
@@ -60,9 +59,10 @@ function render(
       worker.terminate()
       reject(new Error(e.message))
     }
-    const soundfont = sf.slice(0)
-    const full: RenderRequest = { ...req, soundfont, events, duration }
-    worker.postMessage(full, [soundfont])
+    const soundfont = engine.soundfontBytes?.slice(0) ?? null
+    const backup = engine.backupBytes?.slice(0) ?? null
+    const full: RenderRequest = { ...req, soundfont, backup, events, duration }
+    worker.postMessage(full, [soundfont, backup].filter((b): b is ArrayBuffer => b !== null))
   })
 }
 
@@ -155,7 +155,7 @@ function finish(err?: unknown): void {
 
 export async function exportAudio(format: 'wav' | 'mp3', targetPath?: string): Promise<void> {
   const { fileName } = getState()
-  if (!engine.soundfontBytes) {
+  if (!engine.hasSound) {
     getState().notify('Load a soundfont first. Exports are rendered through it.', 'error')
     return
   }
@@ -286,7 +286,7 @@ export async function exportVideo(settings: VideoSettings, targetDir?: string): 
   const { fileName, song, theme, bgImage } = getState()
   const preset = presetFor(settings)
   const { fps } = settings
-  if (!engine.soundfontBytes) {
+  if (!engine.hasSound) {
     getState().notify('Load a soundfont first. Exports are rendered through it.', 'error')
     return
   }

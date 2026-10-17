@@ -22,6 +22,9 @@ type FilterKind = 'midi' | 'song' | 'keyfall' | 'soundfont' | 'wav' | 'mp3' | 'm
 
 /** Crash-recovery copy of the open song, written by the renderer while there are unsaved changes. */
 const autosavePath = (): string => join(app.getPath('userData'), 'autosave.json')
+/** GeneralUser GS, shipped with Keyfall to fill in instruments a soundfont lacks (drums especially). */
+const backupFontPath = (): string =>
+  app.isPackaged ? join(process.resourcesPath, 'soundfonts', 'GeneralUser-GS.sf2') : join(app.getAppPath(), 'resources', 'soundfonts', 'GeneralUser-GS.sf2')
 /** Recorded takes, kept as WAV files so autosave and recovery can find them. */
 const takePath = (id: string): string => join(app.getPath('userData'), 'takes', `${id.replace(/[^\w-]/g, '')}.wav`)
 
@@ -135,6 +138,13 @@ ipcMain.handle('autosave-write', async (_e, json: string) => {
 ipcMain.handle('autosave-read', async () => {
   try {
     return await readFile(autosavePath(), 'utf8')
+  } catch {
+    return null
+  }
+})
+ipcMain.handle('backup-soundfont', async () => {
+  try {
+    return new Uint8Array(await readFile(backupFontPath()))
   } catch {
     return null
   }

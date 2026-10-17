@@ -131,6 +131,26 @@ export function removeSoundfont(path: string): void {
   if (getState().sfActive === path) getState().set({ sfActive: null })
 }
 
+/**
+ * Loads or removes GeneralUser GS behind the user's soundfont. It supplies drums and any other
+ * instrument the user's soundfont doesn't have, and makes sound on its own when none is loaded.
+ */
+export async function applyBackupFont(on = getState().backupFont): Promise<void> {
+  getState().set({ backupFont: on })
+  savePref('backupFont', on)
+  const before = engine.synth?.presetList
+  if (on && !engine.backupBytes) {
+    const bytes = await api().backupSoundfont()
+    if (!bytes) {
+      getState().notify('The built-in GeneralUser GS soundfont is missing from this copy of Keyfall.', 'error')
+      return
+    }
+    await engine.setBackup(toArrayBuffer(bytes))
+  } else if (!on && engine.backupBytes) await engine.setBackup(null)
+  getState().set({ backupLoaded: !!engine.backupBytes })
+  void readPresets(before)
+}
+
 /** Reads the loaded soundfont's preset list (it arrives from the audio thread shortly after loading). */
 async function readPresets(before: unknown): Promise<void> {
   for (let i = 0; i < 30; i++) {

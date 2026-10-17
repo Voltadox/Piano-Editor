@@ -35,6 +35,8 @@ class Engine {
 
   /** Untouched copy of the loaded soundfont, used by the export worker. */
   soundfontBytes: ArrayBuffer | null = null
+  /** GeneralUser GS, behind the user's soundfont: supplies drums and anything else it lacks. */
+  backupBytes: ArrayBuffer | null = null
 
   private list: EventList = { events: [], notes: new Map(), duration: 0 }
   private song: Song | null = null
@@ -98,8 +100,35 @@ class Engine {
     await this.init()
     this.soundfontBytes = bytes.slice(0)
     await this.synth!.soundBankManager.addSoundBank(bytes, 'main')
+    this.orderBanks()
     this.programs.clear()
     if (this.song) this.applyPrograms(this.song)
+  }
+
+  /** Loads (or with null, removes) the backup soundfont that sits behind the user's one. */
+  async setBackup(bytes: ArrayBuffer | null): Promise<void> {
+    await this.init()
+    const manager = this.synth!.soundBankManager
+    if (bytes) {
+      this.backupBytes = bytes.slice(0)
+      await manager.addSoundBank(bytes, 'backup')
+    } else if (this.backupBytes) {
+      this.backupBytes = null
+      await manager.deleteSoundBank('backup')
+    }
+    this.orderBanks()
+    this.programs.clear()
+    if (this.song) this.applyPrograms(this.song)
+  }
+
+  /** The user's soundfont always wins; the backup only supplies instruments it lacks. */
+  private orderBanks(): void {
+    if (this.soundfontBytes && this.backupBytes) this.synth!.soundBankManager.priorityOrder = ['main', 'backup']
+  }
+
+  /** Whether anything can make sound (the user's soundfont, the backup, or both). */
+  get hasSound(): boolean {
+    return !!(this.soundfontBytes || this.backupBytes)
   }
 
   setVolume(v: number): void {

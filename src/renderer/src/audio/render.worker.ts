@@ -4,7 +4,10 @@ import { SoundBankLoader, SpessaSynthProcessor, type MIDIController } from 'spes
 import { CC, OFF, ON, PB, PC, type PlayEvent } from './events'
 
 export interface RenderRequest {
-  soundfont: ArrayBuffer
+  /** the user's soundfont, if one is loaded */
+  soundfont: ArrayBuffer | null
+  /** the backup soundfont that fills in missing instruments */
+  backup: ArrayBuffer | null
   events: PlayEvent[]
   /** seconds of song content */
   duration: number
@@ -59,7 +62,9 @@ async function render(req: RenderRequest): Promise<{ left: Float32Array; right: 
   const { sampleRate: sr } = req
   const BLOCK = 128
   const synth = new SpessaSynthProcessor(sr, { eventsEnabled: false, effectsEnabled: true, maxBufferSize: BLOCK })
-  synth.soundBankManager.addSoundBank(SoundBankLoader.fromArrayBuffer(req.soundfont), 'main')
+  if (req.soundfont) synth.soundBankManager.addSoundBank(SoundBankLoader.fromArrayBuffer(req.soundfont), 'main')
+  if (req.backup) synth.soundBankManager.addSoundBank(SoundBankLoader.fromArrayBuffer(req.backup), 'backup')
+  if (req.soundfont && req.backup) synth.soundBankManager.priorityOrder = ['main', 'backup']
   await synth.processorInitialized
   synth.setSystemParameter('autoAllocateVoices', true)
 

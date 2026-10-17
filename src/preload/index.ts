@@ -20,6 +20,7 @@ const api = {
   autosaveRead: (): Promise<string | null> => ipcRenderer.invoke('autosave-read'),
   autosaveClear: (): Promise<void> => ipcRenderer.invoke('autosave-clear'),
   takeWrite: (id: string, data: Uint8Array): Promise<void> => ipcRenderer.invoke('take-write', id, data),
+  backupSoundfont: (): Promise<Uint8Array | null> => ipcRenderer.invoke('backup-soundfont'),
   takeRead: (id: string): Promise<Uint8Array | null> => ipcRenderer.invoke('take-read', id),
   startupFile: (): Promise<string | null> => ipcRenderer.invoke('startup-file'),
   selftest: (): Promise<string | null> => ipcRenderer.invoke('selftest'),

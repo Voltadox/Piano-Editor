@@ -3,7 +3,7 @@ import { engine } from './audio/engine'
 import { initMidiInput } from './audio/midiInput'
 import { startAutosave } from './actions/autosave'
 import { watchTakes } from './audio/vocals'
-import { handleDroppedFiles, newSong, openMidi, openMidiPath, restoreSoundfont, saveSong } from './actions/files'
+import { applyBackupFont, handleDroppedFiles, newSong, openMidi, openMidiPath, restoreSoundfont, saveSong } from './actions/files'
 import { restoreBackground } from './actions/look'
 import { goToStart, seekBy, stop, syncTransport, toggleLoop, toggleMetronome, toggleRecord, togglePlay, toggleStudio } from './actions/transport'
 import { snapTicks, tempoMap, ticksPerBeat } from './model/song'
@@ -166,6 +166,7 @@ export default function App(): React.JSX.Element {
     void startAutosave().then((stopFn) => (stopAutosave = stopFn))
     void engine.init().then(() => engine.setVolume(getState().volume))
     void restoreSoundfont()
+    void applyBackupFont()
     void restoreBackground()
     void initMidiInput()
     void window.keyfall.startupFile().then((p) => {

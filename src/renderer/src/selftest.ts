@@ -1,6 +1,7 @@
 import { engine } from './audio/engine'
 import { DEFAULT_VIDEO, exportAudio, exportVideo } from './actions/export'
-import { loadMidiBytes, loadSoundfontBytes } from './actions/files'
+import { applyBackupFont, loadMidiBytes, loadSoundfontBytes } from './actions/files'
+import { SoundBankLoader, SpessaSynthProcessor } from 'spessasynth_core'
 import { setLoop, toggleMetronome, toggleRecord, toggleStudio } from './actions/transport'
 import { pressKey, releaseKey, shapeVelocity } from './audio/midiInput'
 import { detectKey, keyName, recognizeChord, suggestChords } from './model/harmony'
@@ -159,6 +160,24 @@ export async function runSelftest(arg: string): Promise<void> {
       },
       (e) => log('microphone did not open:', e instanceof Error ? `${e.name}: ${e.message}` : String(e))
     )
+    // the bundled backup soundfont should supply drums behind the user's piano soundfont
+    await applyBackupFont(true)
+    {
+      const core = new SpessaSynthProcessor(48000, { eventsEnabled: false, effectsEnabled: false })
+      core.soundBankManager.addSoundBank(SoundBankLoader.fromArrayBuffer(sf.data.buffer.slice(sf.data.byteOffset, sf.data.byteOffset + sf.data.byteLength) as ArrayBuffer), 'main')
+      core.soundBankManager.addSoundBank(SoundBankLoader.fromArrayBuffer(engine.backupBytes!.slice(0)), 'backup')
+      core.soundBankManager.priorityOrder = ['main', 'backup']
+      await core.processorInitialized
+      core.programChange(0, 0)
+      core.programChange(9, 0)
+      core.noteOn(9, 36, 120)
+      const l = new Float32Array(24000)
+      const r = new Float32Array(24000)
+      for (let pos = 0; pos < 24000; pos += 128) core.process(l, r, pos, 128)
+      let peak = 0
+      for (const v of l) peak = Math.max(peak, Math.abs(v))
+      log('backup soundfont: channel 1 plays', core.midiChannels[0].preset?.name, '· drum channel plays', core.midiChannels[9].preset?.name, '· kick peak', peak.toFixed(3))
+    }
     log('soundfont presets', getState().sfPresets.length, getState().sfPresets.slice(0, 3).map((p) => `${p.name} ${p.bank}:${p.program}`).join(', '))
 
     // autotune: a hummed "voice" 40 cents flat of A3 with vibrato, tuned to C major

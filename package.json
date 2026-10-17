@@ -58,6 +58,12 @@
     ],
     "win": {
       "target": "nsis"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "resources/soundfonts",
+        "to": "soundfonts"
+      }
+    ]
   }
 }

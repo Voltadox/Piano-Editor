@@ -3,6 +3,7 @@ import { engine } from '../audio/engine'
 import { exportAudio } from '../actions/export'
 import {
   addSoundfonts,
+  applyBackupFont,
   forgetRecent,
   newSong,
   openMidi,
@@ -131,8 +132,11 @@ function RecentMenu(): React.JSX.Element {
 
 /** Soundfont picker: the library list with rename and remove, plus adding more. */
 function SoundfontMenu(): React.JSX.Element {
-  const sfName = useStore((s) => s.sfName)
+  const userFont = useStore((s) => s.sfName)
   const sfLoading = useStore((s) => s.sfLoading)
+  const backupOn = useStore((s) => s.backupFont)
+  const backupLoaded = useStore((s) => s.backupLoaded)
+  const sfName = userFont ?? (backupLoaded ? 'GeneralUser GS' : null)
   const library = useStore((s) => s.sfLibrary)
   const active = useStore((s) => s.sfActive)
   const presets = useStore((s) => s.sfPresets)
@@ -146,7 +150,7 @@ function SoundfontMenu(): React.JSX.Element {
   return (
     <Menu
       className={`btn sf${sfName ? '' : ' warn'}`}
-      title={sfName ? `Soundfont: ${sfName}` : 'Load a .sf2 / .sf3 soundfont'}
+      title={userFont ? `Soundfont: ${userFont}${backupLoaded ? ' (gaps filled from GeneralUser GS)' : ''}` : backupLoaded ? 'Using the built-in GeneralUser GS soundfont' : 'Load a .sf2 / .sf3 soundfont'}
       trigger={
         <>
           <I.IconSoundfont size={16} />
@@ -202,6 +206,11 @@ function SoundfontMenu(): React.JSX.Element {
           <button role="menuitem" onClick={run(() => void addSoundfonts())}>
             <I.IconPlus size={16} /> Add soundfonts…
           </button>
+          <label className="menu-check" title="GeneralUser GS by S. Christian Collins ships with Keyfall. Your soundfont always plays first; this fills in drums and any instrument it doesn't have.">
+            <input id="backup-font" type="checkbox" checked={backupOn} onChange={(e) => void applyBackupFont(e.target.checked)} />
+            Fill missing instruments and drums
+            <span className="kbd">GeneralUser GS</span>
+          </label>
           {presets.length > 0 && activeTrack && (
             <>
               <div className="menu-label">

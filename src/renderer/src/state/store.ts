@@ -69,6 +69,9 @@ export interface EditorState {
   volume: number
   sfName: string | null
   sfLibrary: SoundfontEntry[]
+  /** fill instruments the soundfont lacks from the bundled GeneralUser GS */
+  backupFont: boolean
+  backupLoaded: boolean
   /** presets in the loaded soundfont */
   sfPresets: { name: string; program: number; bank: number; drum: boolean }[]
   /** path of the soundfont currently loaded, if it is in the library */
@@ -151,6 +154,8 @@ export const useStore = create<EditorState>()((set, get) => ({
   sfLibrary: loadPref<SoundfontEntry[]>('soundfonts', []),
   sfActive: null,
   sfPresets: [],
+  backupFont: loadPref('backupFont', true),
+  backupLoaded: false,
   sfLoading: false,
   midiInputs: [],
   toast: null,

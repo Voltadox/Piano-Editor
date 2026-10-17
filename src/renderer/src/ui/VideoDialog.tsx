@@ -74,7 +74,7 @@ export function VideoDialog(): React.JSX.Element | null {
   const open = useStore((s) => s.videoOpen)
   const theme = useStore((s) => s.theme)
   const fileName = useStore((s) => s.fileName)
-  const sfName = useStore((s) => s.sfName)
+  const sfName = useStore((s) => s.sfName ?? (s.backupLoaded ? 'GeneralUser GS' : null))
   const [v, setV] = useState<VideoSettings>(() => loadPref('video', DEFAULT_VIDEO))
   if (!open) return null
 

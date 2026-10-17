@@ -89,7 +89,8 @@ function RecoveryBanner(): React.JSX.Element | null {
 function SoundfontBanner(): React.JSX.Element | null {
   const sfName = useStore((s) => s.sfName)
   const sfLoading = useStore((s) => s.sfLoading)
-  if (sfName || sfLoading) return null
+  const backup = useStore((s) => s.backupLoaded)
+  if (sfName || sfLoading || backup) return null
   return (
     <div className="banner sf-banner">
       <strong>No soundfont loaded.</strong> Drop a <code>.sf2</code> or <code>.sf3</code> file anywhere on the window, or use{' '}
