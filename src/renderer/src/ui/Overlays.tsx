@@ -44,7 +44,7 @@ export function StatusBar(): React.JSX.Element {
   const hint =
     tool === 'draw'
       ? 'Draw: click and drag up to set length · right-click deletes · Alt ignores snap'
-      : 'Double-click to add · drag a note to move · drag its top or bottom edge to resize · drag empty space to box-select · right-click deletes'
+      : 'Double-click to add · drag a note to move · drag its top or bottom edge to resize · drag empty space to box-select · right-click deletes, or opens a menu for the selection'
   return (
     <footer className="status">
       <span className="file">{fileName}{dirty ? ' •' : ''}</span>

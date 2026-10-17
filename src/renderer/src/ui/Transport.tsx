@@ -16,7 +16,7 @@ import { SNAPS, tempoMap, ticksPerBar, ticksPerBeat, type Snap } from '../model/
 import { invertSelection, quantize, selectAll, selectRange, selectSamePitch, selectTrack, setTempo, setTimeSig } from '../state/edit'
 import { savePref } from '../state/prefs'
 import { useStore, getState } from '../state/store'
-import { setCountIn, togglePlay, toggleLoop, toggleMetronome, toggleRecord, toggleStudio, goToStart } from '../actions/transport'
+import { setCountIn, togglePlay, toggleLoop, toggleMetronome, toggleRecord, toggleSplitHands, toggleStudio, goToStart } from '../actions/transport'
 import * as I from './icons'
 
 function fmtTime(sec: number): string {
@@ -204,15 +204,17 @@ function SoundfontMenu(): React.JSX.Element {
   )
 }
 
-function CountInMenu(): React.JSX.Element {
+/** Recording options: count-in and splitting takes by hand. */
+function RecordingMenu(): React.JSX.Element {
   const countIn = useStore((s) => s.countIn)
+  const split = useStore((s) => s.splitHands)
   const options = [
     { bars: 0, label: 'No count-in' },
     { bars: 1, label: 'Count in 1 bar' },
     { bars: 2, label: 'Count in 2 bars' }
   ]
   return (
-    <Menu trigger={<I.IconChevron size={14} />} title="Count-in before recording" className="icon-btn caret">
+    <Menu trigger={<I.IconChevron size={14} />} title="Recording options" className="icon-btn caret">
       {(run) => (
         <>
           <div className="menu-label">Before recording</div>
@@ -221,6 +223,16 @@ function CountInMenu(): React.JSX.Element {
               {o.label}
             </button>
           ))}
+          <div className="menu-label">After recording</div>
+          <button
+            role="menuitemcheckbox"
+            aria-checked={split}
+            className={split ? 'checked' : ''}
+            title="Guesses which hand played each note and files them into Left hand and Right hand tracks"
+            onClick={run(toggleSplitHands)}
+          >
+            Split into left and right hand
+          </button>
         </>
       )}
     </Menu>
@@ -356,7 +368,7 @@ export function Transport(): React.JSX.Element {
         >
           <I.IconMetronome />
         </button>
-        <CountInMenu />
+        <RecordingMenu />
         <button
           className={`icon-btn${loopOn ? ' active' : ''}`}
           title="Loop (L): with notes selected, loops their bars. Shift+drag the overview strip to set the loop."
@@ -367,7 +379,7 @@ export function Transport(): React.JSX.Element {
         </button>
         <button
           className={`icon-btn${studio ? ' active' : ''}`}
-          title="Studio mode (S): what you play rises from the keys, with chord suggestions"
+          title="Studio mode (S): what you play rises from the keys. Tick Suggest chords in its panel for chord ideas."
           aria-pressed={studio}
           onClick={toggleStudio}
         >

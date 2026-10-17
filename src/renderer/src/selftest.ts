@@ -4,6 +4,8 @@ import { loadMidiBytes, loadSoundfontBytes } from './actions/files'
 import { setLoop, toggleMetronome, toggleRecord, toggleStudio } from './actions/transport'
 import { pressKey, releaseKey, shapeVelocity } from './audio/midiInput'
 import { detectKey, keyName, recognizeChord, suggestChords } from './model/harmony'
+import { splitHands } from './model/hands'
+import { selectAll, selectionSustained, setSustain } from './state/edit'
 import { writeMidiFile } from './model/midiio'
 import { emptySong, tempoMap, ticksPerBar } from './model/song'
 import { getState } from './state/store'
@@ -80,7 +82,25 @@ export async function runSelftest(arg: string): Promise<void> {
     for (const pc of [0, 2, 4, 5, 7, 9, 11]) cMajor[pc] = pc === 0 || pc === 7 ? 3 : 1
     const key = detectKey(cMajor)
     log('key of C major scale ->', key && keyName(key), '· after Am:', suggestChords(key, [], recognizeChord([57, 60, 64]), 60).map((s) => `${s.chord.name}(${s.numeral})`).join(' '))
+    // hand split, scored against the demo song's real left and right hand tracks
+    {
+      const tracks = getState().song.tracks
+      const truth = new Map<string, 'L' | 'R'>()
+      for (const tr of tracks) for (const n of tr.notes) truth.set(`${n.tick}:${n.pitch}`, /left/i.test(tr.name) ? 'L' : 'R')
+      const merged = tracks.flatMap((tr) => tr.notes.map(({ pitch, tick, dur, vel }) => ({ pitch, tick, dur, vel })))
+      const { left, right } = splitHands(merged, 48)
+      const right_ = left.filter((n) => truth.get(`${n.tick}:${n.pitch}`) === 'L').length + right.filter((n) => truth.get(`${n.tick}:${n.pitch}`) === 'R').length
+      log('hand split on demo song:', right_, 'of', merged.length, 'notes assigned correctly')
+    }
     getState().set({ velEven: 0.8, velLevel: 90 })
+    // sustain under the whole demo song, then off again
+    selectAll()
+    setSustain(true)
+    const pedal = getState().song.tracks.map((tr) => tr.ccs.filter((c) => c.num === 64).length)
+    const ticked = selectionSustained()
+    setSustain(false)
+    log('sustain: pedal events per track', pedal.join('/'), '· tickbox', ticked, '-> after untick', selectionSustained())
+    getState().setSelection(new Set())
     log('velocity 20 and 127 evened ->', shapeVelocity(20), shapeVelocity(127))
     getState().set({ velEven: 0 })
 
@@ -102,6 +122,13 @@ export async function runSelftest(arg: string): Promise<void> {
     await wait(1200)
     log('studio hint', getState().studioHint?.join(','))
     await window.keyfall.selftestCapture(`${outDir}/window-studio.png`)
+    getState().set({ studioChords: false })
+    await wait(800)
+    await window.keyfall.selftestCapture(`${outDir}/window-studio-plain.png`)
+    await wait(800)
+    await window.keyfall.selftestCapture(`${outDir}/window-studio-plain2.png`)
+    log('studio without chords: hint', getState().studioHint)
+    getState().set({ studioChords: true })
     for (const p of [57, 60, 64]) releaseKey(p)
     toggleStudio()
 
@@ -116,14 +143,20 @@ export async function runSelftest(arg: string): Promise<void> {
     getState().set({ midiInputs: ['selftest keyboard'] })
     await toggleRecord()
     await wait(2600)
-    pressKey(60, 100)
+    // a bass note with the left hand under a chord and melody in the right
+    pressKey(43, 100)
+    pressKey(64, 100)
+    pressKey(67, 100)
+    pressKey(72, 100)
     await wait(500)
-    releaseKey(60)
+    for (const p of [43, 64, 67, 72]) releaseKey(p)
+    pressKey(76, 90)
+    await wait(300)
+    releaseKey(76)
     await wait(400)
     log('recording empty song: still recording', getState().recording, 'playhead', engine.time().toFixed(2))
     await toggleRecord()
-    const rec = getState().song.tracks[0].notes
-    log('recorded notes', rec.length, rec.map((n) => `pitch ${n.pitch} tick ${n.tick} dur ${n.dur}`).join('; '), '·', getState().toast?.text)
+    log('recorded:', getState().song.tracks.map((tr) => `${tr.name} [${tr.notes.map((n) => n.pitch).join(' ')}]`).join(' · '), '·', getState().toast?.text)
     await wait(300)
   } catch (err) {
     log('FAILED', err instanceof Error ? err.stack : String(err))

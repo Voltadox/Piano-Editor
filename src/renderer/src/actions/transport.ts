@@ -20,7 +20,8 @@ export function stop(): void {
   engine.freeRun = false
   if (st.recording) {
     const n = commitTake()
-    getState().notify(n ? `Recorded ${n} note${n === 1 ? '' : 's'} into the active track` : 'Nothing was recorded')
+    const where = st.splitHands ? 'split between the left and right hand' : 'into the active track'
+    getState().notify(n ? `Recorded ${n} note${n === 1 ? '' : 's'} ${where}` : 'Nothing was recorded')
   }
   getState().set({ playing: false, recording: false })
 }
@@ -73,6 +74,12 @@ export function toggleMetronome(): void {
   const on = !getState().metronome
   getState().set({ metronome: on })
   savePref('metronome', on)
+}
+
+export function toggleSplitHands(): void {
+  const on = !getState().splitHands
+  getState().set({ splitHands: on })
+  savePref('splitHands', on)
 }
 
 export function setCountIn(bars: number): void {

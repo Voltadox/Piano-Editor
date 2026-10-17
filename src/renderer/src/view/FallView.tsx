@@ -49,7 +49,7 @@ export function FallView(): React.JSX.Element {
       rising: clock.rising,
       take: clock.live,
       loop: st.loop && st.loopOn && clock.songVisible ? { start: map.tickToSec(st.loop.start), end: map.tickToSec(st.loop.end) } : null,
-      hints: st.studio ? st.studioHint : null,
+      hints: st.studio && st.studioChords ? st.studioHint : null,
       countdown: countdown(),
       theme: st.theme,
       bgImage: st.bgImage
@@ -153,7 +153,9 @@ export function FallView(): React.JSX.Element {
 
     const hit = hitNote(s, x, y)
     if (e.button === 2) {
-      if (hit) deleteNotes(new Set([hit.noteId]))
+      // right-click deletes an unselected note; with a selection it opens the selection menu
+      if (hit && !st.selection.has(hit.noteId)) deleteNotes(new Set([hit.noteId]))
+      else if (st.selection.size) st.set({ contextMenu: { x: e.clientX, y: e.clientY } })
       return
     }
 

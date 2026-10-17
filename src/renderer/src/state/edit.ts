@@ -7,6 +7,7 @@ import {
   snapTicks,
   snapTo,
   sortNotes,
+  ticksPerBar,
   type CC,
   type Note,
   type Song,
@@ -178,10 +179,131 @@ export function addRecorded(trackId: number, notes: Omit<Note, 'id'>[], ccs: CC[
   }))
 }
 
+const HAND_TRACK = { left: /\b(left|lh)\b/i, right: /\b(right|rh)\b/i }
+
+/**
+ * Files a take split by hand into "Left hand" and "Right hand" tracks, as one undo step. Tracks
+ * already named for a hand are reused; an empty active track becomes one; otherwise new tracks
+ * are added with the active track's instrument. Pedal moves go to every track that gets notes.
+ */
+export function addRecordedHands(activeTrackId: number, left: Omit<Note, 'id'>[], right: Omit<Note, 'id'>[], ccs: CC[]): void {
+  if (!left.length && !right.length) {
+    addRecorded(activeTrackId, [], ccs)
+    return
+  }
+  getState().apply((song) => {
+    const tracks = [...song.tracks]
+    const active = tracks.find((t) => t.id === activeTrackId) ?? tracks[0]
+    let spare: Track | undefined = active && !active.notes.length && !HAND_TRACK.left.test(active.name) && !HAND_TRACK.right.test(active.name) ? active : undefined
+    const trackFor = (hand: 'left' | 'right'): Track => {
+      const name = hand === 'left' ? 'Left hand' : 'Right hand'
+      const found = tracks.find((t) => HAND_TRACK[hand].test(t.name))
+      if (found) return found
+      if (spare) {
+        const renamed = { ...spare, name }
+        tracks[tracks.indexOf(spare)] = renamed
+        spare = undefined
+        return renamed
+      }
+      const made = { ...newTrack({ ...song, tracks }, name), program: active?.program ?? 0 }
+      tracks.push(made)
+      return made
+    }
+    // the right hand claims an empty active track first, as the melody usually lives there
+    const targets: [Track, Omit<Note, 'id'>[]][] = []
+    if (right.length) targets.push([trackFor('right'), right])
+    if (left.length) targets.push([trackFor('left'), left])
+    for (const [t, notes] of targets) {
+      const i = tracks.findIndex((x) => x.id === t.id)
+      const cur = tracks[i]
+      tracks[i] = {
+        ...cur,
+        notes: sortNotes([...cur.notes, ...notes.map((n) => ({ ...n, id: newId() }))]),
+        ccs: ccs.length ? [...cur.ccs, ...ccs].sort((a, b) => a.tick - b.tick) : cur.ccs
+      }
+    }
+    return { ...song, tracks }
+  })
+}
+
 export function setVelocities(vels: Map<number, number>): void {
   if (!vels.size) return
   const ids = new Set(vels.keys())
   getState().apply((song) => mapNotes(song, ids, (n) => ({ ...n, vel: Math.min(127, Math.max(1, Math.round(vels.get(n.id)!))) })))
+}
+
+// ---------- sustain pedal ----------
+
+const PEDAL = 64
+
+/** For each track with selected notes, the tick range those notes cover. */
+function selectionRanges(): Map<number, { lo: number; hi: number }> {
+  const { song, selection } = getState()
+  const out = new Map<number, { lo: number; hi: number }>()
+  for (const t of song.tracks)
+    for (const n of t.notes) {
+      if (!selection.has(n.id)) continue
+      const r = out.get(t.id)
+      if (r) {
+        r.lo = Math.min(r.lo, n.tick)
+        r.hi = Math.max(r.hi, n.tick + n.dur)
+      } else out.set(t.id, { lo: n.tick, hi: n.tick + n.dur })
+    }
+  return out
+}
+
+/** Pedal state in effect at a tick (the last sustain event at or before it). */
+function pedalDownAt(ccs: CC[], tick: number): boolean {
+  let down = false
+  for (const c of ccs) {
+    if (c.tick > tick) break
+    if (c.num === PEDAL) down = c.val >= 64
+  }
+  return down
+}
+
+/** Whether the pedal is down where each track's selected notes begin. */
+export function selectionSustained(): boolean {
+  const ranges = selectionRanges()
+  if (!ranges.size) return false
+  const { song } = getState()
+  for (const [id, r] of ranges) {
+    const t = song.tracks.find((x) => x.id === id)
+    if (!t || !pedalDownAt(t.ccs, r.lo)) return false
+  }
+  return true
+}
+
+/**
+ * Puts the sustain pedal down under the selected notes (or takes it away). The pedal lifts and
+ * re-presses at each bar line, the way a pianist changes pedal with the harmony, so chords don't blur.
+ */
+export function setSustain(on: boolean): void {
+  const ranges = selectionRanges()
+  if (!ranges.size) return
+  getState().apply((song) => {
+    const bar = ticksPerBar(song)
+    const gap = Math.max(1, Math.round(song.ppq / 8))
+    return {
+      ...song,
+      tracks: song.tracks.map((t) => {
+        const r = ranges.get(t.id)
+        if (!r) return t
+        const ccs = t.ccs.filter((c) => c.num !== PEDAL || c.tick < r.lo || c.tick > r.hi)
+        if (on) {
+          ccs.push({ tick: r.lo, num: PEDAL, val: 127 })
+          for (let b = Math.floor(r.lo / bar) * bar + bar; b < r.hi - gap; b += bar)
+            ccs.push({ tick: b, num: PEDAL, val: 0 }, { tick: b + gap, num: PEDAL, val: 127 })
+          ccs.push({ tick: r.hi, num: PEDAL, val: 0 })
+        } else if (pedalDownAt(ccs.sort((a, b) => a.tick - b.tick), r.lo - 1)) {
+          // a pedal pressed before the selection would otherwise now never lift
+          ccs.push({ tick: r.lo, num: PEDAL, val: 0 })
+        }
+        return { ...t, ccs: ccs.sort((a, b) => a.tick - b.tick) }
+      })
+    }
+  })
+  getState().notify(on ? 'Sustain pedal added under the selected notes, changing at each bar' : 'Sustain pedal removed from the selected notes')
 }
 
 // ---------- selection ----------

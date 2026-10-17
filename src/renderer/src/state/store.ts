@@ -60,10 +60,14 @@ export interface EditorState {
   velLevel: number
   /** live view: what you play rises from the keys, with chord suggestions */
   studio: boolean
+  /** Studio mode names chords and suggests ones that fit */
+  studioChords: boolean
   /** pitches of the Studio suggestion to mark on the keyboard */
   studioHint: number[] | null
   /** bars of count-in before recording */
   countIn: number
+  /** file each take into Left hand / Right hand tracks */
+  splitHands: boolean
   /** loop region in ticks */
   loop: { start: number; end: number } | null
   loopOn: boolean
@@ -71,6 +75,8 @@ export interface EditorState {
   theme: Theme
   bgImage: ImageBitmap | null
   videoOpen: boolean
+  /** right-click menu for the selection, at a window position */
+  contextMenu: { x: number; y: number } | null
   recovery: Recovery | null
   recent: RecentFile[]
 
@@ -120,14 +126,17 @@ export const useStore = create<EditorState>()((set, get) => ({
   velEven: loadPref('velEven', 0),
   velLevel: loadPref('velLevel', 90),
   studio: loadPref('studio', false),
+  studioChords: loadPref('studioChords', true),
   studioHint: null,
   countIn: loadPref('countIn', 1),
+  splitHands: loadPref('splitHands', true),
   loop: null,
   loopOn: false,
   laneOpen: loadPref('laneOpen', false),
   theme: loadPref('theme', DEFAULT_THEME),
   bgImage: null,
   videoOpen: false,
+  contextMenu: null,
   recovery: null,
   recent: loadPref<RecentFile[]>('recent', []),
 

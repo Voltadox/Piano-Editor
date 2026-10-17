@@ -1,5 +1,6 @@
 import { tempoMap, type CC, type Note } from '../model/song'
-import { addRecorded } from '../state/edit'
+import { splitHands } from '../model/hands'
+import { addRecorded, addRecordedHands } from '../state/edit'
 import { getState, useStore } from '../state/store'
 import { engine } from './engine'
 
@@ -143,7 +144,10 @@ export function beginTake(): void {
   takeCCs = []
 }
 
-/** Writes the notes and pedal moves played since `beginTake` into the active track as one undo step. */
+/**
+ * Writes the notes and pedal moves played since `beginTake` as one undo step: into the active
+ * track, or split between Left hand and Right hand tracks when that option is on.
+ */
 export function commitTake(): number {
   const now = engine.time()
   const { song } = getState()
@@ -163,7 +167,12 @@ export function commitTake(): number {
   for (const c of takeCCs) down.set(c.num, c.val)
   for (const num of [64, 66, 67]) if ((down.get(num) ?? 0) >= 64) ccs.push({ tick: toTick(now), num, val: 0 })
   const track = activeTrack()
-  if (track) addRecorded(track.id, notes, ccs)
+  if (track && getState().splitHands) {
+    // notes starting within 60 ms of each other count as struck together
+    const together = Math.round((song.ppq * map.bpmAt(0) * 0.06) / 60)
+    const { left, right } = splitHands(notes, together)
+    addRecordedHands(track.id, left, right, ccs)
+  } else if (track) addRecorded(track.id, notes, ccs)
   take = []
   takeCCs = []
   return notes.length

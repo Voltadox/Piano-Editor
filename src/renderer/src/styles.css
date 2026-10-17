@@ -81,6 +81,8 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg3); paddin
 .studio { position: absolute; top: 14px; left: 14px; z-index: 6; width: 300px; padding: 12px 14px; border-radius: 12px; background: rgba(16, 19, 30, 0.9); border: 1px solid var(--line); backdrop-filter: blur(6px); display: grid; gap: 8px; }
 .stage.with-lane .studio { left: 110px; }
 .studio-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.studio.compact { width: auto; }
+.studio-toggle { margin-left: auto; font-size: 12px; color: var(--muted); }
 .studio-tag { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
 .studio-key, .studio-chord { color: var(--muted); }
 .studio-key strong, .studio-chord strong { color: var(--text); font-size: 14px; margin-left: 3px; }
@@ -98,6 +100,12 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg3); paddin
 .menu button { text-align: left; padding: 7px 10px; border: 0; border-radius: 6px; background: transparent; }
 .menu button:hover:not(:disabled) { background: var(--bg3); }
 .menu.left { right: auto; left: 0; }
+.menu.context { position: fixed; right: auto; min-width: 240px; }
+.menu-check { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; cursor: pointer; }
+.menu-check:hover { background: var(--bg3); }
+.menu-check input { accent-color: var(--accent); margin: 0; }
+.menu-check .kbd { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.menu button.danger { color: #ff8a8e; }
 .menu button { display: flex; align-items: baseline; gap: 12px; }
 .menu button.muted { color: var(--muted); }
 .menu .kbd { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); }

@@ -4,6 +4,7 @@ import { studioInput } from '../audio/midiInput'
 import { detectKey, keyName, recognizeChord, suggestChords, type Chord, type Key, type Suggestion } from '../model/harmony'
 import { tempoMap, ticksPerBar, ticksPerBeat, trackTimes } from '../model/song'
 import { addRecorded } from '../state/edit'
+import { savePref } from '../state/prefs'
 import { getState, useStore } from '../state/store'
 
 const UPDATE_MS = 150
@@ -48,6 +49,7 @@ function histogram(): { weights: number[]; register: number } {
 /** Studio mode: names the key and chord being played and suggests chords that fit. */
 export function StudioPanel(): React.JSX.Element | null {
   const studio = useStore((s) => s.studio)
+  const chords = useStore((s) => s.studioChords)
   const [reading, setReading] = useState<Reading>({ key: null, chord: null, chordIsLast: false, suggestions: [] })
   const hovered = useRef<number[] | null>(null)
   const memory = useRef<{ key: Key | null; candidate: string; streak: number; lastChord: Chord | null }>({
@@ -58,7 +60,10 @@ export function StudioPanel(): React.JSX.Element | null {
   })
 
   useEffect(() => {
-    if (!studio) return
+    if (!studio || !chords) {
+      if (getState().studioHint) getState().set({ studioHint: null })
+      return
+    }
     const update = (): void => {
       const m = memory.current
       const { weights, register } = histogram()
@@ -94,7 +99,7 @@ export function StudioPanel(): React.JSX.Element | null {
     update()
     const id = window.setInterval(update, UPDATE_MS)
     return () => window.clearInterval(id)
-  }, [studio])
+  }, [studio, chords])
 
   if (!studio) return null
 
@@ -114,11 +119,34 @@ export function StudioPanel(): React.JSX.Element | null {
     getState().notify(`Added ${s.chord.name} at the playhead`)
   }
 
+  const toggle = (on: boolean): void => {
+    getState().set({ studioChords: on })
+    savePref('studioChords', on)
+  }
+  const checkbox = (
+    <label className="check studio-toggle">
+      <input id="studio-chords" type="checkbox" checked={chords} onChange={(e) => toggle(e.target.checked)} /> Suggest chords
+    </label>
+  )
+  if (!chords) {
+    return (
+      <div className="studio compact">
+        <div className="studio-head">
+          <span className="studio-tag">Studio</span>
+          {checkbox}
+        </div>
+      </div>
+    )
+  }
+
   const { key, chord, chordIsLast, suggestions } = reading
   return (
     <div className="studio" aria-live="polite">
       <div className="studio-head">
         <span className="studio-tag">Studio</span>
+        {checkbox}
+      </div>
+      <div className="studio-head">
         {key ? (
           <span className="studio-key">
             Key <strong>{keyName(key)}</strong>
