@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { discardRecovery, restoreRecovery } from '../actions/autosave'
 import { useStore } from '../state/store'
 
 export function Toast(): React.JSX.Element | null {
@@ -59,12 +60,38 @@ export function StatusBar(): React.JSX.Element {
   )
 }
 
-export function SoundfontBanner(): React.JSX.Element | null {
+export function Banners(): React.JSX.Element {
+  return (
+    <div className="banners">
+      <RecoveryBanner />
+      <SoundfontBanner />
+    </div>
+  )
+}
+
+function RecoveryBanner(): React.JSX.Element | null {
+  const recovery = useStore((s) => s.recovery)
+  if (!recovery) return null
+  const when = new Date(recovery.savedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  return (
+    <div className="banner recovery" role="alert">
+      <span>
+        <strong>Keyfall closed with unsaved changes.</strong> A copy of “{recovery.fileName}” was autosaved {when}.
+      </span>
+      <span className="banner-actions">
+        <button className="btn primary" onClick={restoreRecovery}>Restore</button>
+        <button className="btn" onClick={discardRecovery}>Discard</button>
+      </span>
+    </div>
+  )
+}
+
+function SoundfontBanner(): React.JSX.Element | null {
   const sfName = useStore((s) => s.sfName)
   const sfLoading = useStore((s) => s.sfLoading)
   if (sfName || sfLoading) return null
   return (
-    <div className="sf-banner">
+    <div className="banner sf-banner">
       <strong>No soundfont loaded.</strong> Drop a <code>.sf2</code> or <code>.sf3</code> file anywhere on the window, or use{' '}
       <em>Load soundfont</em> in the top bar. Keyfall remembers it for next time.
     </div>

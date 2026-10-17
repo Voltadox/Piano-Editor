@@ -1,12 +1,13 @@
 import { useEffect, useRef } from 'react'
 import { engine } from '../audio/engine'
 import { HIGHEST, LOWEST, isAudible, songDuration, tempoMap, ticksPerBar, trackTimes } from '../model/song'
+import { setLoop } from '../actions/transport'
 import { getState } from '../state/store'
 
-/** Whole-song strip: every note as a dot, the playhead, and click/drag to seek. */
+/** Whole-song strip: every note as a dot, the playhead, click/drag to seek and Shift+drag to set a loop. */
 export function Overview(): React.JSX.Element {
   const ref = useRef<HTMLCanvasElement>(null)
-  const dragging = useRef(false)
+  const dragging = useRef<{ loopFrom: number | null } | null>(null)
 
   useEffect(() => {
     const canvas = ref.current!
@@ -57,6 +58,17 @@ export function Overview(): React.JSX.Element {
       ctx.setTransform(1, 0, 0, 1, 0, 0)
       ctx.drawImage(layer, 0, 0)
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      const { loop: region, loopOn } = getState()
+      if (region) {
+        const map = tempoMap(song)
+        const lx = (map.tickToSec(region.start) / dur) * w
+        const rx = (map.tickToSec(region.end) / dur) * w
+        ctx.fillStyle = loopOn ? 'rgba(124,140,255,0.22)' : 'rgba(255,255,255,0.07)'
+        ctx.fillRect(lx, 0, rx - lx, h)
+        ctx.fillStyle = loopOn ? '#9aa6ff' : 'rgba(255,255,255,0.3)'
+        ctx.fillRect(Math.round(lx), 0, 1, h)
+        ctx.fillRect(Math.round(rx) - 1, 0, 1, h)
+      }
       const x = (engine.time() / dur) * w
       ctx.fillStyle = 'rgba(124,140,255,0.18)'
       ctx.fillRect(0, 0, x, h)
@@ -68,24 +80,46 @@ export function Overview(): React.JSX.Element {
     return () => cancelAnimationFrame(raf)
   }, [])
 
-  const seekTo = (clientX: number): void => {
+  const secAt = (clientX: number): number => {
     const r = ref.current!.getBoundingClientRect()
     const f = Math.min(1, Math.max(0, (clientX - r.left) / r.width))
-    engine.seek(f * Math.max(1, songDuration(getState().song)))
+    return f * Math.max(1, songDuration(getState().song))
+  }
+  const seekTo = (clientX: number): void => engine.seek(secAt(clientX))
+  /** Loop between the bar where the drag began and the bar boundary nearest the pointer. */
+  const loopTo = (from: number, clientX: number): void => {
+    const { song } = getState()
+    const bar = ticksPerBar(song)
+    const tick = tempoMap(song).secToTick(secAt(clientX))
+    const a = Math.min(from, tick)
+    const b = Math.max(from, tick)
+    const start = Math.floor(a / bar) * bar
+    setLoop(start, Math.max(start + bar, Math.ceil(b / bar) * bar))
   }
 
   return (
     <canvas
       ref={ref}
       className="overview"
-      title="Song overview: click or drag to jump"
+      title="Song overview: click or drag to jump · Shift+drag to set a loop"
       onPointerDown={(e) => {
-        dragging.current = true
         ;(e.target as Element).setPointerCapture(e.pointerId)
-        seekTo(e.clientX)
+        if (e.shiftKey) {
+          const from = tempoMap(getState().song).secToTick(secAt(e.clientX))
+          dragging.current = { loopFrom: from }
+          loopTo(from, e.clientX)
+        } else {
+          dragging.current = { loopFrom: null }
+          seekTo(e.clientX)
+        }
       }}
-      onPointerMove={(e) => dragging.current && seekTo(e.clientX)}
-      onPointerUp={() => (dragging.current = false)}
+      onPointerMove={(e) => {
+        const d = dragging.current
+        if (!d) return
+        if (d.loopFrom !== null) loopTo(d.loopFrom, e.clientX)
+        else seekTo(e.clientX)
+      }}
+      onPointerUp={() => (dragging.current = null)}
     />
   )
 }

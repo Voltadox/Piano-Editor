@@ -1,7 +1,28 @@
 import { create } from 'zustand'
 import { demoSong, type Snap, type Song } from '../model/song'
+import { DEFAULT_THEME, type Theme } from '../view/theme'
+import { loadPref } from './prefs'
 
 export type Tool = 'select' | 'draw'
+
+export interface SoundfontEntry {
+  path: string
+  /** display name, editable */
+  name: string
+}
+
+export interface RecentFile {
+  path: string
+  name: string
+}
+
+/** An autosave found at startup, waiting for the user to restore or discard it. */
+export interface Recovery {
+  fileName: string
+  filePath: string | null
+  savedAt: number
+  song: Song
+}
 
 const HISTORY_LIMIT = 300
 
@@ -25,10 +46,26 @@ export interface EditorState {
   recording: boolean
   volume: number
   sfName: string | null
+  sfLibrary: SoundfontEntry[]
+  /** path of the soundfont currently loaded, if it is in the library */
+  sfActive: string | null
   sfLoading: boolean
   midiInputs: string[]
   toast: { id: number; text: string; tone: 'info' | 'error' } | null
   busy: { label: string; progress: number; cancel?: () => void } | null
+
+  metronome: boolean
+  /** bars of count-in before recording */
+  countIn: number
+  /** loop region in ticks */
+  loop: { start: number; end: number } | null
+  loopOn: boolean
+  laneOpen: boolean
+  theme: Theme
+  bgImage: ImageBitmap | null
+  videoOpen: boolean
+  recovery: Recovery | null
+  recent: RecentFile[]
 
   /** Apply an edit. Outside a gesture, each call is one undo step. */
   apply: (fn: (song: Song) => Song) => void
@@ -65,10 +102,23 @@ export const useStore = create<EditorState>()((set, get) => ({
   recording: false,
   volume: 0.8,
   sfName: null,
+  sfLibrary: loadPref<SoundfontEntry[]>('soundfonts', []),
+  sfActive: null,
   sfLoading: false,
   midiInputs: [],
   toast: null,
   busy: null,
+
+  metronome: loadPref('metronome', false),
+  countIn: loadPref('countIn', 1),
+  loop: null,
+  loopOn: false,
+  laneOpen: loadPref('laneOpen', false),
+  theme: loadPref('theme', DEFAULT_THEME),
+  bgImage: null,
+  videoOpen: false,
+  recovery: null,
+  recent: loadPref<RecentFile[]>('recent', []),
 
   apply: (fn) => {
     const s = get()
@@ -106,7 +156,9 @@ export const useStore = create<EditorState>()((set, get) => ({
       future: [],
       gestureBase: null,
       selection: new Set(),
-      activeTrackId: song.tracks[0]?.id ?? -1
+      activeTrackId: song.tracks[0]?.id ?? -1,
+      loop: null,
+      loopOn: false
     })
   },
   markSaved: (fileName, filePath) => set({ fileName, filePath, dirty: false }),

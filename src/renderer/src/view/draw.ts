@@ -11,9 +11,9 @@ import {
   trackTimes,
   type Song
 } from '../model/song'
+import { DEFAULT_THEME, type Theme } from './theme'
 
 export const COLORS = {
-  bg: '#0a0c14',
   laneBlack: 'rgba(255,255,255,0.028)',
   laneLine: 'rgba(255,255,255,0.05)',
   octaveLine: 'rgba(255,255,255,0.10)',
@@ -26,7 +26,6 @@ export const COLORS = {
   keyBlack: '#151824',
   keyBlackTop: '#2a2e40',
   keyEdge: '#05060a',
-  rail: '#7c8cff',
   select: '#ffffff',
   boxFill: 'rgba(124,140,255,0.12)',
   boxLine: 'rgba(124,140,255,0.8)'
@@ -94,8 +93,35 @@ export interface Scene {
   rising?: boolean
   /** notes being recorded, in seconds, drawn in `liveColor` */
   take?: { pitch: number; start: number; end: number; vel: number }[]
+  /** loop region in seconds */
+  loop?: { start: number; end: number } | null
+  /** beats left in a recording count-in */
+  countdown?: number
+  theme?: Theme
+  bgImage?: ImageBitmap | null
   /** larger labels and no editing chrome, for video export */
   presentation?: boolean
+}
+
+export interface TimeAxis {
+  /** y of the keyboard line */
+  line: number
+  /** visible song time range */
+  lo: number
+  hi: number
+  yOf: (sec: number) => number
+  secAt: (y: number) => number
+}
+
+/** Maps song time to y for a scene, in either direction. */
+export function timeAxis(s: Pick<Scene, 'height' | 'keyboardHeight' | 'pxPerSec' | 'time' | 'rising'>): TimeAxis {
+  const line = s.height - s.keyboardHeight
+  const pps = s.pxPerSec
+  const span = line / pps
+  const t = s.time
+  return s.rising
+    ? { line, lo: t - span, hi: t, yOf: (sec) => line - (t - sec) * pps, secAt: (y) => t - (line - y) / pps }
+    : { line, lo: t, hi: t + span, yOf: (sec) => line - (sec - t) * pps, secAt: (y) => t + (line - y) / pps }
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
@@ -104,19 +130,98 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.roundRect(x, y, w, h, rr)
 }
 
+export function drawBackground(ctx: CanvasRenderingContext2D, W: number, H: number, theme: Theme, img?: ImageBitmap | null): void {
+  if (theme.background === 'image' && img) {
+    const k = Math.max(W / img.width, H / img.height)
+    const iw = img.width * k
+    const ih = img.height * k
+    ctx.drawImage(img, (W - iw) / 2, (H - ih) / 2, iw, ih)
+    ctx.fillStyle = `rgba(5,6,10,${theme.imageDim})`
+    ctx.fillRect(0, 0, W, H)
+    return
+  }
+  if (theme.background === 'gradient') {
+    const g = ctx.createLinearGradient(0, 0, 0, H)
+    g.addColorStop(0, theme.bg)
+    g.addColorStop(1, theme.bg2)
+    ctx.fillStyle = g
+  } else ctx.fillStyle = theme.bg
+  ctx.fillRect(0, 0, W, H)
+}
+
+// ---------- key-hit sparks ----------
+
+const SPARK_LIFE = 0.55
+const SPARK_EVERY = 0.04
+const FLASH = 0.3
+
+function hash(n: number): number {
+  let x = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b)
+  x ^= x >>> 13
+  x = Math.imul(x, 0xc2b2ae35)
+  x ^= x >>> 16
+  return (x >>> 0) / 4294967296
+}
+
+interface Spark {
+  seed: number
+  pitch: number
+  start: number
+  end: number
+  color: string
+}
+
+/**
+ * Particles are born at a steady rate while a note sounds. Each one's path depends only on its
+ * seed and age, so scrubbing, live playback and video export all draw the same thing.
+ */
+function drawSparks(ctx: CanvasRenderingContext2D, sparks: Spark[], keys: KeyLayout, line: number, t: number, strength: number): void {
+  const u = keys.whiteW / 26 // scale speeds and sizes with the keyboard
+  ctx.globalCompositeOperation = 'lighter'
+  for (const s of sparks) {
+    const cx = keys.x(s.pitch) + keys.w(s.pitch) / 2
+    const spread = keys.w(s.pitch) * 0.8
+    ctx.fillStyle = s.color
+    const first = Math.max(0, Math.ceil((t - SPARK_LIFE - s.start) / SPARK_EVERY))
+    const last = Math.floor((Math.min(t, s.end) - s.start) / SPARK_EVERY)
+    for (let k = first; k <= last; k++) {
+      const age = t - (s.start + k * SPARK_EVERY)
+      if (age < 0 || age > SPARK_LIFE) continue
+      // a burst on the attack, then a trickle while the key is held
+      const count = k === 0 ? 7 : 1
+      for (let j = 0; j < count; j++) {
+        const seed = s.seed * 977 + k * 31 + j
+        const a = hash(seed)
+        const b = hash(seed + 101)
+        const c = hash(seed + 202)
+        const boost = k === 0 ? 1.5 : 1
+        const vx = (a - 0.5) * 150 * u * boost
+        const vy = (110 + b * 230) * u * boost
+        const px = cx + (c - 0.5) * spread + vx * age
+        const py = line - 3 - vy * age + 380 * u * age * age
+        const life = 1 - age / SPARK_LIFE
+        const size = (1.2 + c * 2.2) * u * (0.4 + 0.6 * life)
+        ctx.globalAlpha = Math.min(1, life * strength)
+        ctx.fillRect(px - size / 2, py - size / 2, size, size)
+      }
+    }
+  }
+  ctx.globalAlpha = 1
+  ctx.globalCompositeOperation = 'source-over'
+}
+
+// ---------- the stage ----------
+
 export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
-  const { song, width: W, height: H, time: t, pxPerSec: pps } = s
+  const { song, width: W, height: H, time: t } = s
+  const theme = s.theme ?? DEFAULT_THEME
   const kbH = s.keyboardHeight
-  const line = H - kbH
   const keys = keyLayout(W)
   const map = tempoMap(song)
   const rising = !!s.rising
-  // visible window of song time
-  const lo = rising ? t - line / pps : t
-  const hi = rising ? t : t + line / pps
+  const { line, lo, hi, yOf } = timeAxis(s)
 
-  ctx.fillStyle = COLORS.bg
-  ctx.fillRect(0, 0, W, H)
+  drawBackground(ctx, W, H, theme, s.bgImage)
 
   // pitch lanes
   for (let p = LOWEST; p <= HIGHEST; p++) {
@@ -134,33 +239,39 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
   const tpbar = ticksPerBar(song)
   const startTick = Math.max(0, map.secToTick(Math.max(0, lo)))
   const endTick = map.secToTick(hi)
-  const yOf = (sec: number): number => (rising ? line - (t - sec) * pps : line - (sec - t) * pps)
-  if (s.snapTicks && s.snapTicks > 1) {
-    const g = s.snapTicks
-    const spacing = (map.tickToSec(startTick + g) - map.tickToSec(startTick)) * pps
-    if (spacing >= 9) {
-      ctx.fillStyle = COLORS.sub
-      for (let k = Math.ceil(startTick / g) * g; k <= endTick; k += g) ctx.fillRect(0, Math.round(yOf(map.tickToSec(k))), W, 1)
+  if (!s.presentation || theme.beatLines) {
+    if (s.snapTicks && s.snapTicks > 1) {
+      const g = s.snapTicks
+      const spacing = (map.tickToSec(startTick + g) - map.tickToSec(startTick)) * s.pxPerSec
+      if (spacing >= 9) {
+        ctx.fillStyle = COLORS.sub
+        for (let k = Math.ceil(startTick / g) * g; k <= endTick; k += g) ctx.fillRect(0, Math.round(yOf(map.tickToSec(k))), W, 1)
+      }
     }
-  }
-  ctx.font = `${s.presentation ? 14 : 11}px "Cascadia Mono", Consolas, monospace`
-  ctx.textBaseline = 'bottom'
-  for (let k = Math.floor(startTick / tpb) * tpb; k <= endTick; k += tpb) {
-    const y = Math.round(yOf(map.tickToSec(k)))
-    if (y > line) continue
-    const isBar = Math.round(k) % Math.round(tpbar) === 0
-    ctx.fillStyle = isBar ? COLORS.bar : COLORS.beat
-    ctx.fillRect(0, y, W, isBar ? 1.5 : 1)
-    if (isBar && !s.presentation) {
-      ctx.fillStyle = COLORS.barLabel
-      ctx.fillText(String(Math.round(k / tpbar) + 1), 6, y - 2)
+    ctx.font = `${s.presentation ? 14 : 11}px "Cascadia Mono", Consolas, monospace`
+    ctx.textBaseline = 'bottom'
+    for (let k = Math.floor(startTick / tpb) * tpb; k <= endTick; k += tpb) {
+      const y = Math.round(yOf(map.tickToSec(k)))
+      if (y > line) continue
+      const isBar = Math.round(k) % Math.round(tpbar) === 0
+      ctx.fillStyle = isBar ? COLORS.bar : COLORS.beat
+      ctx.fillRect(0, y, W, isBar ? 1.5 : 1)
+      if (isBar && !s.presentation) {
+        ctx.fillStyle = COLORS.barLabel
+        ctx.fillText(String(Math.round(k / tpbar) + 1), 6, y - 2)
+      }
     }
   }
 
+  if (s.loop && !s.presentation) drawLoop(ctx, s.loop, W, line, yOf, theme.accent)
+
   // notes
-  const lit = new Map<number, string>()
+  const lit = new Map<number, { color: string; start: number }>()
+  const sparks: Spark[] = []
+  const wantSparks = theme.sparks && theme.glow > 0
   const anySel = s.selection && s.selection.size > 0
   const labelSize = s.presentation ? 13 : 10
+  const radius = (w: number): number => w * 0.5 * theme.roundness
   ctx.font = `600 ${labelSize}px "Segoe UI", system-ui, sans-serif`
   ctx.textBaseline = 'bottom'
   ctx.textAlign = 'center'
@@ -177,7 +288,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
 
     ctx.globalAlpha = dim * (0.62 + (0.38 * vel) / 127)
     ctx.fillStyle = color
-    roundRect(ctx, x + pad, top, w - pad * 2, h, Math.min(6, w * 0.28))
+    roundRect(ctx, x + pad, top, w - pad * 2, h, radius(w))
     ctx.fill()
     ctx.globalAlpha = dim
     // darker edge reads as the note's attack
@@ -187,7 +298,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
       ctx.globalAlpha = 1
       ctx.lineWidth = ring === 'select' ? 2 : 1
       ctx.strokeStyle = ring === 'select' ? COLORS.select : 'rgba(255,255,255,0.5)'
-      roundRect(ctx, x + pad + 0.5, top + 0.5, w - pad * 2 - 1, h - 1, Math.min(6, w * 0.28))
+      roundRect(ctx, x + pad + 0.5, top + 0.5, w - pad * 2 - 1, h - 1, radius(w))
       ctx.stroke()
     }
     if (h > labelSize + 6 && w > labelSize * 1.7) {
@@ -201,7 +312,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
     for (const track of song.tracks) {
       const times = trackTimes(track, map)
       const audible = isAudible(track, song)
-      const from = lowerBound(times.start, lo - times.maxDur - 0.001)
+      const from = lowerBound(times.start, Math.min(lo, t - SPARK_LIFE) - times.maxDur - 0.001)
       const to = lowerBound(times.start, hi)
       const dim = !audible ? 0.22 : 1
       for (let i = from; i < to; i++) {
@@ -209,32 +320,71 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
         if (isBlack(n.pitch) !== pass) continue
         const st = times.start[i]
         const en = times.end[i]
-        if (en <= lo) continue
-        if (st <= t && en > t && audible) lit.set(n.pitch, track.color)
+        if (audible && st <= t) {
+          if (en > t) lit.set(n.pitch, { color: track.color, start: st })
+          if (wantSparks && en > t - SPARK_LIFE) sparks.push({ seed: n.id, pitch: n.pitch, start: st, end: en, color: track.color })
+        }
+        if (en <= lo || st >= hi) continue
         const ring = anySel && s.selection!.has(n.id) ? 'select' : n.id === s.hoverId ? 'hover' : null
         drawNote(n.pitch, st, en, n.vel, track.color, dim, ring)
       }
     }
-    if (s.take)
-      for (const n of s.take)
-        if (isBlack(n.pitch) === pass && n.end > lo && n.start < hi)
-          drawNote(n.pitch, n.start, n.end, n.vel, s.liveColor ?? COLORS.rail, 1, null)
+    if (s.take) {
+      const color = s.liveColor ?? theme.accent
+      for (const n of s.take) {
+        if (isBlack(n.pitch) !== pass) continue
+        if (wantSparks && n.start <= t && n.end > t - SPARK_LIFE)
+          sparks.push({ seed: n.pitch * 7919 + Math.round(n.start * 1000), pitch: n.pitch, start: n.start, end: n.end, color })
+        if (n.end > lo && n.start < hi) drawNote(n.pitch, n.start, n.end, n.vel, color, 1, null)
+      }
+    }
   }
   ctx.textAlign = 'left'
 
-  if (s.liveKeys) for (const p of s.liveKeys.keys()) lit.set(p, s.liveColor ?? COLORS.rail)
+  if (s.liveKeys)
+    for (const p of s.liveKeys.keys()) if (!lit.has(p)) lit.set(p, { color: s.liveColor ?? theme.accent, start: t })
 
-  // glow where sounding notes meet the keyboard
-  for (const [p, color] of lit) {
-    const x = keys.x(p) + keys.w(p) / 2
-    const g = ctx.createRadialGradient(x, line, 0, x, line, keys.whiteW * 1.8)
-    g.addColorStop(0, hexA(color, 0.55))
-    g.addColorStop(1, hexA(color, 0))
-    ctx.fillStyle = g
-    ctx.fillRect(x - keys.whiteW * 2, line - keys.whiteW * 2, keys.whiteW * 4, keys.whiteW * 2)
+  // glow where sounding notes meet the keyboard, flaring on each attack
+  if (theme.glow > 0) {
+    ctx.globalCompositeOperation = 'lighter'
+    for (const [p, l] of lit) {
+      const flash = Math.max(0, 1 - (t - l.start) / FLASH)
+      const x = keys.x(p) + keys.w(p) / 2
+      const r = keys.whiteW * (1.6 + flash * 1.2)
+      const g = ctx.createRadialGradient(x, line, 0, x, line, r)
+      g.addColorStop(0, hexA(l.color, Math.min(1, (0.4 + 0.45 * flash) * theme.glow)))
+      g.addColorStop(1, hexA(l.color, 0))
+      ctx.fillStyle = g
+      ctx.fillRect(x - r, line - r, r * 2, r)
+      if (flash > 0) {
+        // a short beam of light up the lane
+        const beam = keys.w(p) * 0.9
+        const bh = keys.whiteW * 6 * theme.glow
+        const lg = ctx.createLinearGradient(0, line, 0, line - bh)
+        lg.addColorStop(0, hexA(l.color, 0.35 * flash * Math.min(1, theme.glow)))
+        lg.addColorStop(1, hexA(l.color, 0))
+        ctx.fillStyle = lg
+        ctx.fillRect(x - beam / 2, line - bh, beam, bh)
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over'
   }
 
-  drawKeyboard(ctx, keys, W, line, kbH, lit, !!s.presentation)
+  const litColors = new Map<number, string>()
+  for (const [p, l] of lit) litColors.set(p, l.color)
+  drawKeyboard(ctx, keys, W, line, kbH, litColors, theme.accent, !!s.presentation)
+
+  if (sparks.length) drawSparks(ctx, sparks, keys, line, t, theme.glow)
+
+  if (s.countdown) {
+    const size = Math.round(Math.min(W, line) * 0.22)
+    ctx.font = `700 ${size}px "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = hexA(theme.accent, 0.85)
+    ctx.fillText(String(s.countdown), W / 2, line / 2)
+    ctx.textAlign = 'left'
+  }
 
   if (s.box) {
     const { x0, y0, x1, y1 } = s.box
@@ -246,6 +396,34 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
   }
 }
 
+function drawLoop(
+  ctx: CanvasRenderingContext2D,
+  loop: { start: number; end: number },
+  W: number,
+  line: number,
+  yOf: (sec: number) => number,
+  accent: string
+): void {
+  const ya = yOf(loop.start)
+  const yb = yOf(loop.end)
+  const top = Math.max(0, Math.min(ya, yb))
+  const bottom = Math.min(line, Math.max(ya, yb))
+  if (bottom > top) {
+    ctx.fillStyle = hexA(accent, 0.05)
+    ctx.fillRect(0, top, W, bottom - top)
+  }
+  ctx.font = '600 11px "Segoe UI", system-ui, sans-serif'
+  ctx.textAlign = 'right'
+  ctx.textBaseline = 'bottom'
+  for (const [y, label] of [[ya, 'Loop start'], [yb, 'Loop end']] as const) {
+    if (y < 0 || y > line) continue
+    ctx.fillStyle = hexA(accent, 0.8)
+    ctx.fillRect(0, Math.round(y) - 1, W, 2)
+    ctx.fillText(label, W - 8, y - 4)
+  }
+  ctx.textAlign = 'left'
+}
+
 function drawKeyboard(
   ctx: CanvasRenderingContext2D,
   keys: KeyLayout,
@@ -253,6 +431,7 @@ function drawKeyboard(
   top: number,
   h: number,
   lit: Map<number, string>,
+  accent: string,
   presentation: boolean
 ): void {
   ctx.fillStyle = COLORS.keyEdge
@@ -290,13 +469,13 @@ function drawKeyboard(
     }
   }
   // the rail notes land on
-  ctx.fillStyle = COLORS.rail
+  ctx.fillStyle = accent
   ctx.fillRect(0, top - 2, W, 3)
-  ctx.fillStyle = 'rgba(124,140,255,0.25)'
+  ctx.fillStyle = hexA(accent, 0.25)
   ctx.fillRect(0, top - 6, W, 4)
 }
 
-function hexA(hex: string, a: number): string {
+export function hexA(hex: string, a: number): string {
   const h = hex.replace('#', '')
   const n = parseInt(h.length === 3 ? h.replace(/(.)/g, '$1$1') : h, 16)
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`

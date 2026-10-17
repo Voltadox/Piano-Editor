@@ -7,6 +7,7 @@ import {
   snapTicks,
   snapTo,
   sortNotes,
+  type CC,
   type Note,
   type Song,
   type Track
@@ -160,15 +161,62 @@ export function paste(atTick: number): void {
   getState().setSelection(sel)
 }
 
-/** Recorded notes arrive in ticks already; this adds them as one undo step. */
-export function addRecorded(trackId: number, notes: Omit<Note, 'id'>[]): void {
-  if (!notes.length) return
+/** Recorded notes and pedal moves arrive in ticks already; this adds them as one undo step. */
+export function addRecorded(trackId: number, notes: Omit<Note, 'id'>[], ccs: CC[] = []): void {
+  if (!notes.length && !ccs.length) return
   getState().apply((song) => ({
     ...song,
     tracks: song.tracks.map((t) =>
-      t.id === trackId ? { ...t, notes: sortNotes([...t.notes, ...notes.map((n) => ({ ...n, id: newId() }))]) } : t
+      t.id === trackId
+        ? {
+            ...t,
+            notes: sortNotes([...t.notes, ...notes.map((n) => ({ ...n, id: newId() }))]),
+            ccs: ccs.length ? [...t.ccs, ...ccs].sort((a, b) => a.tick - b.tick) : t.ccs
+          }
+        : t
     )
   }))
+}
+
+export function setVelocities(vels: Map<number, number>): void {
+  if (!vels.size) return
+  const ids = new Set(vels.keys())
+  getState().apply((song) => mapNotes(song, ids, (n) => ({ ...n, vel: Math.min(127, Math.max(1, Math.round(vels.get(n.id)!))) })))
+}
+
+// ---------- selection ----------
+
+function selectWhere(pred: (n: Note, t: Track) => boolean, emptyMsg: string): void {
+  const sel = new Set<number>()
+  for (const t of getState().song.tracks) for (const n of t.notes) if (pred(n, t)) sel.add(n.id)
+  getState().setSelection(sel)
+  if (!sel.size) getState().notify(emptyMsg)
+}
+
+export function selectTrack(trackId = getState().activeTrackId): void {
+  selectWhere((_n, t) => t.id === trackId, 'The active track has no notes.')
+}
+
+/** Every note with the same pitch as a selected note, in the same track. */
+export function selectSamePitch(): void {
+  const { song, selection } = getState()
+  if (!selection.size) {
+    getState().notify('Select a note first. This picks every note of the same pitch in its track.')
+    return
+  }
+  const keys = new Set<string>()
+  for (const t of song.tracks) for (const n of t.notes) if (selection.has(n.id)) keys.add(`${t.id}:${n.pitch}`)
+  selectWhere((n, t) => keys.has(`${t.id}:${n.pitch}`), '')
+}
+
+/** Notes that start inside a tick range, in every track. */
+export function selectRange(start: number, end: number): void {
+  selectWhere((n) => n.tick >= start && n.tick < end, 'No notes start inside that range.')
+}
+
+export function invertSelection(): void {
+  const { selection } = getState()
+  selectWhere((n) => !selection.has(n.id), 'Every note was already selected.')
 }
 
 export function setTempo(bpm: number): void {

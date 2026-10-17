@@ -4,6 +4,7 @@ import { HIGHEST, LOWEST, lowerBound, snapTicks, snapTo, tempoMap, trackTimes, t
 import { addNote, deleteNotes, mapNotes } from '../state/edit'
 import { getState } from '../state/store'
 import { liveTake } from '../audio/midiInput'
+import { countdown } from '../actions/transport'
 import { drawScene, hitNote, keyLayout, pianoKeyLength, type Scene } from './draw'
 
 type Box = { x0: number; y0: number; x1: number; y1: number }
@@ -29,6 +30,7 @@ export function FallView(): React.JSX.Element {
   const scene = (): Scene => {
     const st = getState()
     const active = st.song.tracks.find((t) => t.id === st.activeTrackId)
+    const map = tempoMap(st.song)
     return {
       song: st.song,
       width: size.current.w,
@@ -44,7 +46,11 @@ export function FallView(): React.JSX.Element {
       liveKeys: engine.liveKeys,
       liveColor: active?.color,
       rising: st.recording,
-      take: st.recording ? liveTake() : undefined
+      take: st.recording ? liveTake() : undefined,
+      loop: st.loop && st.loopOn ? { start: map.tickToSec(st.loop.start), end: map.tickToSec(st.loop.end) } : null,
+      countdown: countdown(),
+      theme: st.theme,
+      bgImage: st.bgImage
     }
   }
 

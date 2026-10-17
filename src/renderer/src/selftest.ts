@@ -1,5 +1,5 @@
 import { engine } from './audio/engine'
-import { exportAudio, exportVideo, VIDEO_PRESETS } from './actions/export'
+import { DEFAULT_VIDEO, exportAudio, exportVideo } from './actions/export'
 import { loadMidiBytes, loadSoundfontBytes } from './actions/files'
 import { writeMidiFile } from './model/midiio'
 import { getState } from './state/store'
@@ -36,7 +36,7 @@ export async function runSelftest(arg: string): Promise<void> {
     await exportAudio('wav', `${outDir}/selftest.wav`)
     await exportAudio('mp3', `${outDir}/selftest.mp3`)
     getState().set({ fileName: 'selftest' })
-    await exportVideo(VIDEO_PRESETS[1], 30, outDir)
+    await exportVideo({ ...DEFAULT_VIDEO, size: '720p', fps: 30 }, outDir)
     log('toast', getState().toast?.text)
 
     // decode a frame of the exported video to confirm the picture survived encoding

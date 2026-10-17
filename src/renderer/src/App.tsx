@@ -1,16 +1,35 @@
 import { useEffect, useState } from 'react'
 import { engine } from './audio/engine'
 import { initMidiInput } from './audio/midiInput'
+import { startAutosave } from './actions/autosave'
 import { handleDroppedFiles, newSong, openMidi, openMidiPath, restoreSoundfont, saveSong } from './actions/files'
-import { goToStart, seekBy, stop, toggleRecord, togglePlay } from './actions/transport'
+import { restoreBackground } from './actions/look'
+import { goToStart, seekBy, stop, syncTransport, toggleLoop, toggleMetronome, toggleRecord, togglePlay } from './actions/transport'
 import { snapTicks, tempoMap, ticksPerBeat } from './model/song'
-import { copySelection, cutSelection, deleteNotes, nudge, paste, quantize, selectAll, transpose, updateTrack } from './state/edit'
+import {
+  copySelection,
+  cutSelection,
+  deleteNotes,
+  invertSelection,
+  nudge,
+  paste,
+  quantize,
+  selectAll,
+  selectRange,
+  selectSamePitch,
+  selectTrack,
+  transpose,
+  updateTrack
+} from './state/edit'
+import { savePref } from './state/prefs'
 import { getState, useStore } from './state/store'
 import { FallView } from './view/FallView'
+import { VelocityLane } from './view/VelocityLane'
 import { Overview } from './ui/Overview'
-import { Busy, SoundfontBanner, StatusBar, Toast } from './ui/Overlays'
+import { Banners, Busy, StatusBar, Toast } from './ui/Overlays'
 import { TrackDrawer } from './ui/TrackDrawer'
 import { Transport } from './ui/Transport'
+import { VideoDialog } from './ui/VideoDialog'
 
 function isTyping(e: KeyboardEvent): boolean {
   const el = e.target as HTMLElement | null
@@ -35,12 +54,24 @@ function onKey(e: KeyboardEvent): void {
   }
   const handled = (): void => e.preventDefault()
 
+  // the video dialog only lets playback through, so its preview can be played
+  if (st.videoOpen) {
+    if (e.key === 'Escape') st.set({ videoOpen: false })
+    else if (e.key === ' ') (handled(), void togglePlay())
+    return
+  }
+
   if (ctrl) {
     if (k === 'z' && !e.shiftKey) (st.undo(), handled())
     else if (k === 'y' || (k === 'z' && e.shiftKey)) (st.redo(), handled())
     else if (k === 's') (void saveSong(e.shiftKey), handled())
     else if (k === 'o') (void openMidi(), handled())
     else if (k === 'n') (newSong(), handled())
+    else if (k === 'e') (st.set({ videoOpen: true }), handled())
+    else if (k === 'a' && e.shiftKey) (selectTrack(), handled())
+    else if (k === 'p' && e.shiftKey) (selectSamePitch(), handled())
+    else if (k === 'i') (invertSelection(), handled())
+    else if (k === 'l') (st.loop && selectRange(st.loop.start, st.loop.end), handled())
     else if (k === 'a') (selectAll(), handled())
     else if (k === 'c') (copySelection(), handled())
     else if (k === 'x') (cutSelection(), handled())
@@ -95,7 +126,12 @@ function onKey(e: KeyboardEvent): void {
       return
   }
   if (k === 'q') quantize(e.shiftKey)
-  else if (k === 'v') st.set({ tool: 'select' })
+  else if (k === 'v' && e.shiftKey) {
+    st.set({ laneOpen: !st.laneOpen })
+    savePref('laneOpen', !st.laneOpen)
+  } else if (k === 'v') st.set({ tool: 'select' })
+  else if (k === 'k') toggleMetronome()
+  else if (k === 'l') toggleLoop()
   else if (k === 'd') st.set({ tool: 'draw' })
   else if (k === 'r') void toggleRecord()
   else if (k === 't') st.set({ drawerOpen: !st.drawerOpen })
@@ -109,6 +145,7 @@ export default function App(): React.JSX.Element {
   const [dropping, setDropping] = useState(false)
   const fileName = useStore((s) => s.fileName)
   const dirty = useStore((s) => s.dirty)
+  const laneOpen = useStore((s) => s.laneOpen)
 
   useEffect(() => {
     engine.setSong(getState().song)
@@ -119,8 +156,12 @@ export default function App(): React.JSX.Element {
       if (getState().recording) stop()
       getState().set({ playing: false })
     }
+    const unsyncTransport = syncTransport()
+    let stopAutosave: (() => void) | null = null
+    void startAutosave().then((stopFn) => (stopAutosave = stopFn))
     void engine.init().then(() => engine.setVolume(getState().volume))
     void restoreSoundfont()
+    void restoreBackground()
     void initMidiInput()
     void window.keyfall.startupFile().then((p) => {
       if (p) void openMidiPath(p)
@@ -131,6 +172,8 @@ export default function App(): React.JSX.Element {
     window.addEventListener('keydown', onKey)
     return () => {
       unsub()
+      unsyncTransport()
+      stopAutosave?.()
       window.removeEventListener('keydown', onKey)
     }
   }, [])
@@ -158,13 +201,15 @@ export default function App(): React.JSX.Element {
     >
       <Transport />
       <Overview />
-      <main className="stage">
+      <main className={`stage${laneOpen ? ' with-lane' : ''}`}>
+        {laneOpen && <VelocityLane />}
         <FallView />
-        <SoundfontBanner />
+        <Banners />
         <TrackDrawer />
       </main>
       <StatusBar />
       <Toast />
+      <VideoDialog />
       <Busy />
       {dropping && <div className="drop-hint">Drop a MIDI file to open it, or a soundfont to load it</div>}
     </div>

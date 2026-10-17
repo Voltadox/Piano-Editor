@@ -1,6 +1,8 @@
 import { engine } from '../audio/engine'
 import { beginTake, commitTake } from '../audio/midiInput'
-import { getState } from '../state/store'
+import { songEndTick, tempoMap, ticksPerBar, ticksPerBeat } from '../model/song'
+import { savePref } from '../state/prefs'
+import { getState, useStore } from '../state/store'
 
 export async function togglePlay(): Promise<void> {
   const st = getState()
@@ -36,16 +38,94 @@ export async function toggleRecord(): Promise<void> {
   beginTake()
   engine.freeRun = true
   getState().set({ recording: true })
-  if (!st.playing) {
-    await engine.play()
-    getState().set({ playing: true })
-  }
+  if (st.playing) return
+  const { song, loop, loopOn, countIn } = getState()
+  const map = tempoMap(song)
+  // with a loop on, each take starts at the top of the loop
+  if (loopOn && loop) engine.seek(map.tickToSec(loop.start))
+  const tick = map.secToTick(engine.time())
+  const preroll = (countIn * ticksPerBar(song) * 60) / (map.bpmAt(tick) * song.ppq)
+  await engine.play(preroll)
+  getState().set({ playing: true })
+}
+
+/** Beats left in the count-in, or 0 once it is over. */
+export function countdown(): number {
+  const t = engine.time()
+  if (!getState().recording || t >= engine.prerollEnd) return 0
+  const { song } = getState()
+  const map = tempoMap(song)
+  const beat = (ticksPerBeat(song) * 60) / (map.bpmAt(0) * song.ppq)
+  return Math.ceil((engine.prerollEnd - t) / beat - 1e-6)
 }
 
 export function goToStart(): void {
-  engine.seek(0)
+  engine.seek(getState().loopOn && getState().loop ? tempoMap(getState().song).tickToSec(getState().loop!.start) : 0)
 }
 
 export function seekBy(sec: number): void {
   engine.seek(Math.max(0, engine.time() + sec))
+}
+
+// ---------- metronome ----------
+
+export function toggleMetronome(): void {
+  const on = !getState().metronome
+  getState().set({ metronome: on })
+  savePref('metronome', on)
+}
+
+export function setCountIn(bars: number): void {
+  getState().set({ countIn: bars })
+  savePref('countIn', bars)
+}
+
+// ---------- loop ----------
+
+export function setLoop(start: number, end: number): void {
+  if (end - start < 1) return
+  getState().set({ loop: { start, end }, loopOn: true })
+}
+
+/**
+ * With notes selected, loops the bars they cover. Otherwise turns the loop on or off,
+ * creating a four-bar loop from the current bar the first time.
+ */
+export function toggleLoop(): void {
+  const { song, selection, loop, loopOn } = getState()
+  const bar = ticksPerBar(song)
+  if (selection.size) {
+    let lo = Infinity
+    let hi = -Infinity
+    for (const t of song.tracks)
+      for (const n of t.notes)
+        if (selection.has(n.id)) {
+          lo = Math.min(lo, n.tick)
+          hi = Math.max(hi, n.tick + n.dur)
+        }
+    setLoop(Math.floor(lo / bar) * bar, Math.max(Math.ceil(hi / bar), Math.floor(lo / bar) + 1) * bar)
+    return
+  }
+  if (loop) {
+    getState().set({ loopOn: !loopOn })
+    return
+  }
+  // past the end of the song, loop its last four bars instead
+  const at = Math.min(tempoMap(song).secToTick(engine.time()), Math.max(0, songEndTick(song) - bar * 4))
+  const here = Math.floor(at / bar) * bar
+  setLoop(here, here + bar * 4)
+}
+
+/** Keeps the engine's metronome and loop in step with the store. */
+export function syncTransport(): () => void {
+  const apply = (): void => {
+    const { metronome, loop, loopOn, song } = getState()
+    engine.metronome = metronome
+    const map = tempoMap(song)
+    engine.setLoop(loop && loopOn ? { start: map.tickToSec(loop.start), end: map.tickToSec(loop.end) } : null)
+  }
+  apply()
+  return useStore.subscribe((s, p) => {
+    if (s.metronome !== p.metronome || s.loop !== p.loop || s.loopOn !== p.loopOn || s.song.tempos !== p.song.tempos) apply()
+  })
 }

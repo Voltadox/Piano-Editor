@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, session, type FileFilter } from 'electron'
 import { join, basename } from 'path'
-import { readFile, writeFile } from 'fs/promises'
+import { rmSync } from 'fs'
+import { readFile, rename, rm, writeFile } from 'fs/promises'
 
 const FILTERS: Record<string, FileFilter[]> = {
   midi: [{ name: 'MIDI files', extensions: ['mid', 'midi'] }],
@@ -8,9 +9,13 @@ const FILTERS: Record<string, FileFilter[]> = {
   wav: [{ name: 'WAV audio', extensions: ['wav'] }],
   mp3: [{ name: 'MP3 audio', extensions: ['mp3'] }],
   mp4: [{ name: 'MP4 video', extensions: ['mp4'] }],
-  webm: [{ name: 'WebM video', extensions: ['webm'] }]
+  webm: [{ name: 'WebM video', extensions: ['webm'] }],
+  image: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'] }]
 }
-type FilterKind = 'midi' | 'soundfont' | 'wav' | 'mp3' | 'mp4' | 'webm'
+type FilterKind = 'midi' | 'soundfont' | 'wav' | 'mp3' | 'mp4' | 'webm' | 'image'
+
+/** Crash-recovery copy of the open song, written by the renderer while there are unsaved changes. */
+const autosavePath = (): string => join(app.getPath('userData'), 'autosave.json')
 
 // Debug helper: `--screenshot=out.png` saves a capture of the window a few seconds after load, then quits.
 const shotArg = process.argv.find((a) => a.startsWith('--screenshot='))
@@ -57,6 +62,7 @@ function createWindow(): void {
       detail: 'Close Keyfall and lose them?'
     })
     if (choice === 1) e.preventDefault()
+    else rmSync(autosavePath(), { force: true })
   })
 
   if (shotPath || selftestArg) {
@@ -85,6 +91,11 @@ ipcMain.handle('open-file', async (_e, kind: FilterKind) => {
   return { path, name: basename(path), data: new Uint8Array(await readFile(path)) }
 })
 
+ipcMain.handle('pick-files', async (_e, kind: FilterKind) => {
+  const res = await dialog.showOpenDialog(win!, { properties: ['openFile', 'multiSelections'], filters: FILTERS[kind] })
+  return res.canceled ? [] : res.filePaths.map((path) => ({ path, name: basename(path) }))
+})
+
 ipcMain.handle('read-file', async (_e, path: string) => {
   try {
     return { path, name: basename(path), data: new Uint8Array(await readFile(path)) }
@@ -102,6 +113,20 @@ ipcMain.handle('write-file', async (_e, path: string, data: Uint8Array) => {
   await writeFile(path, data)
   return { path, name: basename(path) }
 })
+
+ipcMain.handle('autosave-write', async (_e, json: string) => {
+  const path = autosavePath()
+  await writeFile(`${path}.tmp`, json, 'utf8')
+  await rename(`${path}.tmp`, path)
+})
+ipcMain.handle('autosave-read', async () => {
+  try {
+    return await readFile(autosavePath(), 'utf8')
+  } catch {
+    return null
+  }
+})
+ipcMain.handle('autosave-clear', () => rm(autosavePath(), { force: true }))
 
 ipcMain.on('set-dirty', (_e, value: boolean) => {
   dirty = value

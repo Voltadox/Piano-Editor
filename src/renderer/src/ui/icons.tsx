@@ -26,3 +26,7 @@ export const IconTrash = ({ size }: P) => svg(<><path d="M4 7h16" /><path d="M10
 export const IconPlus = ({ size }: P) => svg(<path d="M12 5v14M5 12h14" />, size)
 export const IconClose = ({ size }: P) => svg(<path d="M6 6l12 12M18 6 6 18" />, size)
 export const IconMagnet = ({ size }: P) => svg(<><path d="M6 4v8a6 6 0 0 0 12 0V4" /><path d="M6 8h4M14 8h4" /></>, size)
+export const IconMetronome = ({ size }: P) => svg(<><path d="M9 3h6l4 18H5z" /><path d="M12 15l5-8" /><path d="M7 17h10" /></>, size)
+export const IconLoop = ({ size }: P) => svg(<><path d="M17 2l3 3-3 3" /><path d="M4 11V9a4 4 0 0 1 4-4h12" /><path d="M7 22l-3-3 3-3" /><path d="M20 13v2a4 4 0 0 1-4 4H4" /></>, size)
+export const IconVelocity = ({ size }: P) => svg(<><path d="M4 20V14M9 20V8M14 20v-9M19 20V4" /></>, size)
+export const IconChevron = ({ size }: P) => svg(<path d="m6 9 6 6 6-6" />, size)

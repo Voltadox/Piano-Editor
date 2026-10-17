@@ -16,7 +16,9 @@ import { buildEvents } from '../audio/events'
 import type { RenderReply, RenderRequest } from '../audio/render.worker'
 import RenderWorker from '../audio/render.worker?worker'
 import { getState } from '../state/store'
+import type { Song } from '../model/song'
 import { drawScene, pianoKeyLength } from '../view/draw'
+import type { Theme } from '../view/theme'
 
 const SAMPLE_RATE = 48000
 const TAIL = 2.5
@@ -103,10 +105,70 @@ export interface VideoPreset {
   height: number
 }
 export const VIDEO_PRESETS: VideoPreset[] = [
-  { id: '1080p', label: '1080p landscape (1920×1080)', width: 1920, height: 1080 },
-  { id: '720p', label: '720p landscape (1280×720)', width: 1280, height: 720 },
+  { id: '1080p', label: '1080p (1920×1080)', width: 1920, height: 1080 },
+  { id: '720p', label: '720p (1280×720)', width: 1280, height: 720 },
+  { id: '2160p', label: '4K (3840×2160)', width: 3840, height: 2160 },
   { id: 'vertical', label: 'Vertical for Shorts/Reels (1080×1920)', width: 1080, height: 1920 }
 ]
+
+export interface VideoSettings {
+  style: 'falling' | 'rising'
+  size: string
+  fps: 30 | 60
+  titleCard: boolean
+  /** blank uses the file name */
+  title: string
+  artist: string
+  caption: string
+}
+
+export const DEFAULT_VIDEO: VideoSettings = {
+  style: 'falling',
+  size: '1080p',
+  fps: 60,
+  titleCard: true,
+  title: '',
+  artist: '',
+  caption: ''
+}
+
+/** Seconds of empty stage before the first note, while the title card shows. */
+export const VIDEO_LEAD = 2
+
+export const presetFor = (v: VideoSettings): VideoPreset => VIDEO_PRESETS.find((p) => p.id === v.size) ?? VIDEO_PRESETS[0]
+
+export interface VideoFrame {
+  song: Song
+  settings: VideoSettings
+  theme: Theme
+  bgImage: ImageBitmap | null
+  fileName: string
+  width: number
+  height: number
+  /** seconds since the start of the video */
+  ts: number
+}
+
+/** One frame of the exported video; the export dialog's preview draws the same thing. */
+export function drawVideoFrame(ctx: CanvasRenderingContext2D, f: VideoFrame): void {
+  const { width, height } = f
+  const portrait = height > width
+  const kbH = Math.round(Math.max(height * (portrait ? 0.09 : 0.15), pianoKeyLength(width)))
+  const pxPerSec = (height - kbH) / (portrait ? 4 : 2.6)
+  drawScene(ctx, {
+    song: f.song,
+    width,
+    height,
+    time: f.ts - VIDEO_LEAD,
+    pxPerSec,
+    keyboardHeight: kbH,
+    rising: f.settings.style === 'rising',
+    theme: f.theme,
+    bgImage: f.bgImage,
+    presentation: true
+  })
+  if (f.settings.titleCard) drawTitle(ctx, f, f.settings.title.trim() || f.fileName)
+}
 
 interface VideoFormat {
   container: 'mp4' | 'webm'
@@ -124,8 +186,10 @@ async function pickFormat(width: number, height: number): Promise<VideoFormat | 
   return null
 }
 
-export async function exportVideo(preset: VideoPreset, fps = 60, targetDir?: string): Promise<void> {
-  const { fileName, song } = getState()
+export async function exportVideo(settings: VideoSettings, targetDir?: string): Promise<void> {
+  const { fileName, song, theme, bgImage } = getState()
+  const preset = presetFor(settings)
+  const { fps } = settings
   if (!engine.soundfontBytes) {
     getState().notify('Load a soundfont first. Exports are rendered through it.', 'error')
     return
@@ -143,7 +207,7 @@ export async function exportVideo(preset: VideoPreset, fps = 60, targetDir?: str
   engine.pause()
   getState().set({ playing: false })
 
-  const lead = 2
+  const lead = VIDEO_LEAD
   const ctl = startBusy('Rendering audio')
   try {
     const pcm = await render(
@@ -170,8 +234,6 @@ export async function exportVideo(preset: VideoPreset, fps = 60, targetDir?: str
     const total = pcm.left.length
     const totalSec = total / SAMPLE_RATE
     const frames = Math.ceil(totalSec * fps)
-    const kbH = Math.round(Math.max(height * (height > width ? 0.09 : 0.15), pianoKeyLength(width)))
-    const pxPerSec = (height - kbH) / (height > width ? 4 : 2.6)
     let audioDone = 0
     const pushAudio = async (untilSec: number): Promise<void> => {
       const end = Math.min(total, Math.ceil(untilSec * SAMPLE_RATE))
@@ -190,8 +252,7 @@ export async function exportVideo(preset: VideoPreset, fps = 60, targetDir?: str
       }
       const ts = i / fps
       await pushAudio(ts + 1)
-      drawScene(ctx, { song, width, height, time: ts - lead, pxPerSec, keyboardHeight: kbH, presentation: true })
-      drawTitle(ctx, fileName, width, ts)
+      drawVideoFrame(ctx, { song, settings, theme, bgImage, fileName, width, height, ts })
       await video.add(ts, 1 / fps)
       if (i % 15 === 0) progress(`Encoding video · frame ${i.toLocaleString()} of ${frames.toLocaleString()}`, 0.25 + (0.75 * i) / frames, ctl)
     }
@@ -207,16 +268,45 @@ export async function exportVideo(preset: VideoPreset, fps = 60, targetDir?: str
   }
 }
 
-function drawTitle(ctx: CanvasRenderingContext2D, title: string, width: number, ts: number): void {
-  const alpha = ts < 2 ? 1 : Math.max(0, 1 - (ts - 2) / 0.8)
+/** Title, artist and caption over the opening seconds, fading out as the first notes arrive. */
+function drawTitle(ctx: CanvasRenderingContext2D, f: VideoFrame, title: string): void {
+  const alpha = f.ts < VIDEO_LEAD ? 1 : Math.max(0, 1 - (f.ts - VIDEO_LEAD) / 0.8)
   if (alpha <= 0) return
-  const size = Math.round(width / 28)
+  const { width, height } = f
+  const size = Math.round(Math.min(width, height * 1.6) / 22)
+  const cx = width / 2
+  let y = height * (height > width ? 0.2 : 0.16)
   ctx.globalAlpha = alpha
-  ctx.fillStyle = '#e4e7f2'
-  ctx.font = `700 ${size}px "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText(title, width / 2, size * 2.2)
+  ctx.shadowColor = 'rgba(0,0,0,0.6)'
+  ctx.shadowBlur = size * 0.4
+  ctx.fillStyle = '#f2f4fa'
+  ctx.font = `700 ${size}px "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif`
+  ctx.fillText(title, cx, y, width * 0.9)
+  const artist = f.settings.artist.trim()
+  if (artist) {
+    y += size * 1.05
+    ctx.fillStyle = 'rgba(228,231,242,0.8)'
+    ctx.font = `500 ${Math.round(size * 0.5)}px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif`
+    ctx.fillText(artist, cx, y, width * 0.9)
+  }
+  const caption = f.settings.caption.trim()
+  if (caption) {
+    y += size * 1.05
+    const cs = Math.round(size * 0.38)
+    ctx.font = `600 ${cs}px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif`
+    const w = Math.min(width * 0.9, ctx.measureText(caption).width + cs * 1.6)
+    ctx.shadowBlur = 0
+    ctx.fillStyle = f.theme.accent
+    ctx.beginPath()
+    ctx.roundRect(cx - w / 2, y - cs, w, cs * 2, cs)
+    ctx.fill()
+    ctx.fillStyle = '#0a0c14'
+    ctx.fillText(caption, cx, y + 1, w - cs)
+  }
+  ctx.shadowBlur = 0
+  ctx.shadowColor = 'transparent'
   ctx.textAlign = 'left'
   ctx.globalAlpha = 1
 }
