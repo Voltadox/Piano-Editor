@@ -1,9 +1,10 @@
 import { engine } from '../audio/engine'
 import { parseMidiFile, writeMidiFile } from '../model/midiio'
-import { emptySong } from '../model/song'
+import { emptySong, type Song } from '../model/song'
 import { savePref } from '../state/prefs'
 import { getState, type RecentFile, type SoundfontEntry } from '../state/store'
 import { clearAutosave } from './autosave'
+import { needsProject, packProject, unpackProject } from './project'
 
 const SF_KEY = 'keyfall.soundfont'
 const api = (): Window['keyfall'] => window.keyfall
@@ -45,25 +46,29 @@ export async function openRecent(path: string): Promise<void> {
   }
 }
 
+const PROJECT_EXT = /\.keyfall$/i
+
+/** Opens a song from file bytes: a .keyfall song file, or a MIDI file. */
 export function loadMidiBytes(data: Uint8Array, name: string, path: string | null): void {
   if (!confirmDiscard()) return
   try {
-    const song = parseMidiFile(data)
-    if (!song.tracks.length) throw new Error('No notes found in this file.')
+    const song: Song = PROJECT_EXT.test(name) ? unpackProject(data) : parseMidiFile(data)
+    if (!song.tracks.length && !song.audioTracks.length) throw new Error('No notes found in this file.')
     engine.pause()
     engine.seek(0)
     getState().set({ playing: false, recording: false })
     getState().loadSong(song, stripExt(name), path)
     const notes = song.tracks.reduce((a, t) => a + t.notes.length, 0)
+    const vocals = song.audioTracks.length
     if (path) remember(path, name)
-    getState().notify(`Opened ${name}: ${song.tracks.length} tracks, ${notes.toLocaleString()} notes`)
+    getState().notify(`Opened ${name}: ${song.tracks.length} tracks, ${notes.toLocaleString()} notes${vocals ? `, ${vocals} vocal track${vocals === 1 ? '' : 's'}` : ''}`)
   } catch (err) {
     getState().notify(`Couldn't open ${name}. ${err instanceof Error ? err.message : ''}`, 'error')
   }
 }
 
 export async function openMidi(): Promise<void> {
-  const f = await api().openFile('midi')
+  const f = await api().openFile('song')
   if (f) loadMidiBytes(f.data, f.name, f.path)
 }
 
@@ -72,15 +77,21 @@ export async function openMidiPath(path: string): Promise<void> {
   if (f) loadMidiBytes(f.data, f.name, f.path)
 }
 
+/**
+ * Saves as a .keyfall song file when the song has vocals, a beat or sections (MIDI can't hold
+ * them), otherwise as MIDI. Saving such a song over a .mid asks for a .keyfall name instead.
+ */
 export async function saveSong(saveAs = false): Promise<void> {
   const st = getState()
+  const project = needsProject(st.song)
   let path = st.filePath
-  if (saveAs || !path) {
-    path = await api().saveDialog('midi', `${st.fileName || 'Untitled'}.mid`)
+  if (saveAs || !path || (project && !PROJECT_EXT.test(path))) {
+    path = await api().saveDialog(project ? 'keyfall' : 'song', `${st.fileName || 'Untitled'}.${project ? 'keyfall' : 'mid'}`)
     if (!path) return
   }
   try {
-    const res = await api().writeFile(path, writeMidiFile(st.song, st.fileName))
+    const bytes = PROJECT_EXT.test(path) ? await packProject(st.song) : writeMidiFile(st.song, st.fileName)
+    const res = await api().writeFile(path, bytes)
     getState().markSaved(stripExt(res.name), res.path)
     remember(res.path, res.name)
     void clearAutosave()
@@ -120,10 +131,27 @@ export function removeSoundfont(path: string): void {
   if (getState().sfActive === path) getState().set({ sfActive: null })
 }
 
+/** Reads the loaded soundfont's preset list (it arrives from the audio thread shortly after loading). */
+async function readPresets(before: unknown): Promise<void> {
+  for (let i = 0; i < 30; i++) {
+    const list = engine.synth?.presetList ?? []
+    if (list.length && (list !== before || i > 10)) {
+      const presets = list
+        .map((p) => ({ name: p.name.trim() || `Program ${p.program + 1}`, program: p.program, bank: p.bankMSB, drum: p.isGMGSDrum }))
+        .sort((a, b) => Number(a.drum) - Number(b.drum) || a.bank - b.bank || a.program - b.program)
+      getState().set({ sfPresets: presets })
+      return
+    }
+    await new Promise((r) => setTimeout(r, 100))
+  }
+}
+
 export async function loadSoundfontBytes(data: ArrayBuffer, name: string, path: string | null): Promise<void> {
   getState().set({ sfLoading: true })
   try {
+    const before = engine.synth?.presetList
     await engine.loadSoundfont(data)
+    void readPresets(before)
     const entry = path ? addToLibrary([{ path, name }])[0] : null
     getState().set({ sfName: entry?.name ?? name, sfActive: path, sfLoading: false })
     if (path) {
@@ -179,7 +207,7 @@ export async function restoreSoundfont(): Promise<void> {
 }
 
 const SOUNDFONT_EXT = /\.(sf2|sf3|sfogg|dls)$/i
-const MIDI_EXT = /\.(mid|midi)$/i
+const MIDI_EXT = /\.(mid|midi|keyfall)$/i
 
 export async function handleDroppedFiles(files: FileList): Promise<void> {
   const fonts: { path: string; name: string }[] = []

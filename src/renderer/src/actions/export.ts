@@ -13,7 +13,11 @@ import {
 } from 'mediabunny'
 import { engine } from '../audio/engine'
 import { buildEvents } from '../audio/events'
-import type { RenderReply, RenderRequest } from '../audio/render.worker'
+import type { EncodeRequest, RenderReply, RenderRequest } from '../audio/render.worker'
+import { toBuffer } from '../audio/takes'
+import { buildChain } from '../audio/vocalChain'
+import { clipAudio, processAll, vocalLines } from '../audio/vocals'
+import { audioAudible, tempoMap } from '../model/song'
 import RenderWorker from '../audio/render.worker?worker'
 import { getState } from '../state/store'
 import type { Song } from '../model/song'
@@ -32,7 +36,11 @@ function render(
 ): Promise<Extract<RenderReply, { type: 'done' | 'pcm' }>> {
   const sf = engine.soundfontBytes
   if (!sf) return Promise.reject(new Error('Load a soundfont first. Exports are rendered through it.'))
-  const { events, duration } = buildEvents(getState().song)
+  const song = getState().song
+  const built = buildEvents(song)
+  const events = built.events
+  // vocals can run past the last note
+  const duration = Math.max(built.duration, vocalEnd(song))
   return new Promise((resolve, reject) => {
     const worker = new RenderWorker()
     signal.addEventListener('abort', () => {
@@ -55,6 +63,79 @@ function render(
     const soundfont = sf.slice(0)
     const full: RenderRequest = { ...req, soundfont, events, duration }
     worker.postMessage(full, [soundfont])
+  })
+}
+
+const hasVocals = (song: Song): boolean => song.audioTracks.some((t) => t.clips.length && audioAudible(t, song))
+
+function vocalEnd(song: Song): number {
+  const map = tempoMap(song)
+  let end = 0
+  for (const t of song.audioTracks) for (const c of t.clips) end = Math.max(end, map.tickToSec(c.tick) + c.duration)
+  return end
+}
+
+/** Mixes the song's vocal tracks (tuned, through their effects) over the rendered notes. */
+async function mixVocals(song: Song, left: Float32Array, right: Float32Array, lead: number): Promise<{ left: Float32Array; right: Float32Array }> {
+  await processAll(song)
+  const len = left.length
+  const ctx = new OfflineAudioContext(2, len, SAMPLE_RATE)
+  const limiter = ctx.createDynamicsCompressor()
+  limiter.threshold.value = -3
+  limiter.knee.value = 3
+  limiter.ratio.value = 12
+  limiter.attack.value = 0.003
+  limiter.release.value = 0.15
+  limiter.connect(ctx.destination)
+  const bed = new AudioBuffer({ length: len, numberOfChannels: 2, sampleRate: SAMPLE_RATE })
+  bed.copyToChannel(left as Float32Array<ArrayBuffer>, 0)
+  bed.copyToChannel(right as Float32Array<ArrayBuffer>, 1)
+  const notes = ctx.createBufferSource()
+  notes.buffer = bed
+  notes.connect(limiter)
+  notes.start(0)
+  const map = tempoMap(song)
+  for (const t of song.audioTracks) {
+    if (!t.clips.length || !audioAudible(t, song)) continue
+    const chain = buildChain(ctx, t.preset, t.amount)
+    const vol = ctx.createGain()
+    vol.gain.value = t.volume
+    const pan = ctx.createStereoPanner()
+    pan.pan.value = t.pan
+    chain.output.connect(vol).connect(pan).connect(limiter)
+    for (const c of t.clips) {
+      const a = clipAudio(song, t, c)
+      if (!a) continue
+      const src = ctx.createBufferSource()
+      src.buffer = toBuffer(ctx, a.pcm, a.rate)
+      const g = ctx.createGain()
+      const at = lead + map.tickToSec(c.tick)
+      g.gain.setValueAtTime(0, at)
+      g.gain.linearRampToValueAtTime(1, at + Math.max(0.005, c.fadeIn))
+      g.gain.setValueAtTime(1, at + Math.max(0, c.duration - c.fadeOut))
+      g.gain.linearRampToValueAtTime(0, at + c.duration)
+      src.connect(g).connect(chain.input)
+      src.start(at, c.offset, c.duration)
+    }
+  }
+  const out = await ctx.startRendering()
+  return { left: out.getChannelData(0).slice(), right: out.getChannelData(1).slice() }
+}
+
+function encode(req: EncodeRequest, signal: AbortSignal): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const worker = new RenderWorker()
+    signal.addEventListener('abort', () => {
+      worker.terminate()
+      reject(new Cancelled())
+    })
+    worker.onmessage = (e: MessageEvent<RenderReply>) => {
+      if (e.data.type === 'progress') return
+      worker.terminate()
+      if (e.data.type === 'done') resolve(e.data.data)
+      else reject(new Error(e.data.type === 'error' ? e.data.message : 'Unexpected encode result'))
+    }
+    worker.postMessage(req, [req.left.buffer, req.right.buffer])
   })
 }
 
@@ -84,13 +165,26 @@ export async function exportAudio(format: 'wav' | 'mp3', targetPath?: string): P
   getState().set({ playing: false })
   const ctl = startBusy(`Rendering ${format.toUpperCase()}`)
   try {
-    const res = await render(
-      { lead: 0, tail: TAIL, sampleRate: SAMPLE_RATE, format, kbps: 256 },
-      (p) => progress(`Rendering ${format.toUpperCase()}`, p, ctl),
-      ctl.signal
-    )
-    if (res.type !== 'done') throw new Error('Unexpected render result')
-    const saved = await window.keyfall.writeFile(path, res.data)
+    const song = getState().song
+    let data: Uint8Array
+    if (hasVocals(song)) {
+      // notes first, then the vocals mixed over them, then the file is encoded
+      const pcm = await render({ lead: 0, tail: TAIL, sampleRate: SAMPLE_RATE, format: 'pcm' }, (p) => progress('Rendering notes', p * 0.6, ctl), ctl.signal)
+      if (pcm.type !== 'pcm') throw new Error('Unexpected render result')
+      progress('Tuning and mixing vocals', 0.65, ctl)
+      const mix = await mixVocals(song, pcm.left, pcm.right, 0)
+      progress(`Encoding ${format.toUpperCase()}`, 0.85, ctl)
+      data = await encode({ encode: true, left: mix.left, right: mix.right, sampleRate: SAMPLE_RATE, format, kbps: 256 }, ctl.signal)
+    } else {
+      const res = await render(
+        { lead: 0, tail: TAIL, sampleRate: SAMPLE_RATE, format, kbps: 256 },
+        (p) => progress(`Rendering ${format.toUpperCase()}`, p, ctl),
+        ctl.signal
+      )
+      if (res.type !== 'done') throw new Error('Unexpected render result')
+      data = res.data
+    }
+    const saved = await window.keyfall.writeFile(path, data)
     finish()
     getState().notify(`Exported ${saved.name}`)
   } catch (err) {
@@ -147,6 +241,7 @@ export interface VideoFrame {
   height: number
   /** seconds since the start of the video */
   ts: number
+  vocals?: ReturnType<typeof vocalLines>
 }
 
 /** One frame of the exported video; the export dialog's preview draws the same thing. */
@@ -165,6 +260,7 @@ export function drawVideoFrame(ctx: CanvasRenderingContext2D, f: VideoFrame): vo
     rising: f.settings.style === 'rising',
     theme: f.theme,
     bgImage: f.bgImage,
+    vocals: f.vocals,
     presentation: true
   })
   if (f.settings.titleCard) drawTitle(ctx, f, f.settings.title.trim() || f.fileName)
@@ -210,12 +306,18 @@ export async function exportVideo(settings: VideoSettings, targetDir?: string): 
   const lead = VIDEO_LEAD
   const ctl = startBusy('Rendering audio')
   try {
-    const pcm = await render(
+    const notesPcm = await render(
       { lead, tail: TAIL, sampleRate: SAMPLE_RATE, format: 'pcm' },
-      (p) => progress('Rendering audio', p * 0.25, ctl),
+      (p) => progress('Rendering audio', p * 0.2, ctl),
       ctl.signal
     )
-    if (pcm.type !== 'pcm') throw new Error('Unexpected render result')
+    if (notesPcm.type !== 'pcm') throw new Error('Unexpected render result')
+    let pcm = { left: notesPcm.left, right: notesPcm.right }
+    if (hasVocals(song)) {
+      progress('Tuning and mixing vocals', 0.22, ctl)
+      pcm = await mixVocals(song, pcm.left, pcm.right, lead)
+    }
+    const vocals = vocalLines(song)
 
     const canvas = document.createElement('canvas')
     canvas.width = width
@@ -252,7 +354,7 @@ export async function exportVideo(settings: VideoSettings, targetDir?: string): 
       }
       const ts = i / fps
       await pushAudio(ts + 1)
-      drawVideoFrame(ctx, { song, settings, theme, bgImage, fileName, width, height, ts })
+      drawVideoFrame(ctx, { song, settings, theme, bgImage, fileName, width, height, ts, vocals })
       await video.add(ts, 1 / fps)
       if (i % 15 === 0) progress(`Encoding video · frame ${i.toLocaleString()} of ${frames.toLocaleString()}`, 0.25 + (0.75 * i) / frames, ctl)
     }

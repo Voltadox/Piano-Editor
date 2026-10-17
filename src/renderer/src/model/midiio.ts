@@ -1,9 +1,13 @@
 import { Midi } from '@tonejs/midi'
 import { writeMidi, type MidiEvent } from 'midi-file'
 import { GM_NAMES } from './gm'
+import { mixerCCs } from '../audio/events'
 import { DRUM_CHANNEL, PALETTE, newId, sortNotes, type Song, type Track } from './song'
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
+
+/** The first value a controller is set to, or a default. */
+const firstCC = (ccs: { num: number; val: number }[], num: number, fallback: number): number => ccs.find((c) => c.num === num)?.val ?? fallback
 
 export function parseMidiFile(bytes: Uint8Array): Song {
   const midi = new Midi(bytes)
@@ -27,6 +31,7 @@ export function parseMidiFile(bytes: Uint8Array): Song {
       name: t.name.trim() || fallbackName,
       channel: clamp(t.channel, 0, 15),
       program: drum ? 0 : t.instrument.number,
+      bank: firstCC(ccs, 0, 0),
       color: PALETTE[tracks.length % PALETTE.length],
       muted: false,
       solo: false,
@@ -40,12 +45,15 @@ export function parseMidiFile(bytes: Uint8Array): Song {
         }))
       ),
       ccs,
+      volume: firstCC(ccs, 7, 0.8 * 127) / 127,
+      pan: (firstCC(ccs, 10, 64) - 64) / 63,
+      reverb: firstCC(ccs, 91, 0.3 * 127) / 127,
       bends: t.pitchBends
         .map((p) => ({ tick: p.ticks, val: clamp(Math.round(p.value * 8192 + 8192), 0, 16383) }))
         .sort((a, b) => a.tick - b.tick)
     })
   })
-  return { ppq, tempos, timeSig, tracks }
+  return { ppq, tempos, timeSig, tracks, audioTracks: [], sections: [], key: null }
 }
 
 type WithoutDelta<T> = T extends unknown ? Omit<T, 'deltaTime'> : never
@@ -94,10 +102,12 @@ export function writeMidiFile(song: Song, title: string): Uint8Array {
     const ch = t.channel
     const evs: AbsEvent[] = [
       { tick: 0, order: 0, ev: { meta: true, type: 'trackName', text: t.name } },
-      { tick: 0, order: 1, ev: { type: 'programChange', channel: ch, programNumber: t.program } }
+      { tick: 0, order: 0, ev: { type: 'controller', channel: ch, controllerType: 0, value: t.bank } },
+      { tick: 0, order: 1, ev: { type: 'programChange', channel: ch, programNumber: t.program } },
+      ...mixerCCs(t).map(([num, val]) => ({ tick: 0, order: 2, ev: { type: 'controller' as const, channel: ch, controllerType: num, value: val } }))
     ]
     for (const c of t.ccs)
-      evs.push({ tick: c.tick, order: 2, ev: { type: 'controller', channel: ch, controllerType: c.num, value: c.val } })
+      if (c.num !== 7 && c.num !== 10 && c.num !== 0) evs.push({ tick: c.tick, order: 2, ev: { type: 'controller', channel: ch, controllerType: c.num, value: c.val } })
     for (const b of t.bends)
       evs.push({ tick: b.tick, order: 3, ev: { type: 'pitchBend', channel: ch, value: b.val - 8192 } })
     for (const n of t.notes) {

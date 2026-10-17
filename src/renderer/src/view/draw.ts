@@ -11,6 +11,7 @@ import {
   trackTimes,
   type Song
 } from '../model/song'
+import { HOP_SEC } from '../audio/pitch'
 import { DEFAULT_THEME, type Theme } from './theme'
 
 export const COLORS = {
@@ -97,6 +98,10 @@ export interface Scene {
   loop?: { start: number; end: number } | null
   /** beats left in a recording count-in */
   countdown?: number
+  /** tuned vocal melodies to draw over the keys they sing */
+  vocals?: { color: string; origin: number; from: number; to: number; pitch: Float32Array }[]
+  /** section names shown at their bar lines */
+  sections?: { bar: number; name: string }[]
   /** pitches to mark on the keyboard (a Studio chord suggestion) */
   hints?: number[] | null
   theme?: Theme
@@ -250,8 +255,8 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
         for (let k = Math.ceil(startTick / g) * g; k <= endTick; k += g) ctx.fillRect(0, Math.round(yOf(map.tickToSec(k))), W, 1)
       }
     }
-    ctx.font = `${s.presentation ? 14 : 11}px "Cascadia Mono", Consolas, monospace`
     ctx.textBaseline = 'bottom'
+    const named = new Map((s.sections ?? []).map((x) => [x.bar, x.name]))
     for (let k = Math.floor(startTick / tpb) * tpb; k <= endTick; k += tpb) {
       const y = Math.round(yOf(map.tickToSec(k)))
       if (y > line) continue
@@ -259,8 +264,16 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
       ctx.fillStyle = isBar ? COLORS.bar : COLORS.beat
       ctx.fillRect(0, y, W, isBar ? 1.5 : 1)
       if (isBar && !s.presentation) {
+        const b = Math.round(k / tpbar)
+        ctx.font = `11px "Cascadia Mono", Consolas, monospace`
         ctx.fillStyle = COLORS.barLabel
-        ctx.fillText(String(Math.round(k / tpbar) + 1), 6, y - 2)
+        ctx.fillText(String(b + 1), 6, y - 2)
+        const name = named.get(b)
+        if (name) {
+          ctx.font = `600 12px "Segoe UI", system-ui, sans-serif`
+          ctx.fillStyle = hexA(theme.accent, 0.9)
+          ctx.fillText(name, 30, y - 2)
+        }
       }
     }
   }
@@ -372,6 +385,8 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
     ctx.globalCompositeOperation = 'source-over'
   }
 
+  if (s.vocals?.length) drawVocals(ctx, s.vocals, keys, line, lo, hi, yOf)
+
   const litColors = new Map<number, string>()
   for (const [p, l] of lit) litColors.set(p, l.color)
   drawKeyboard(ctx, keys, W, line, kbH, litColors, theme.accent, !!s.presentation)
@@ -396,6 +411,51 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
     ctx.lineWidth = 1
     ctx.fillRect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0))
     ctx.strokeRect(Math.min(x0, x1) + 0.5, Math.min(y0, y1) + 0.5, Math.abs(x1 - x0), Math.abs(y1 - y0))
+  }
+}
+
+/** A sung melody as a glowing line over the keys it sings (fractional pitches fall between keys). */
+function drawVocals(
+  ctx: CanvasRenderingContext2D,
+  lines: NonNullable<Scene['vocals']>,
+  keys: KeyLayout,
+  line: number,
+  lo: number,
+  hi: number,
+  yOf: (sec: number) => number
+): void {
+  const centre = (p: number): number => keys.x(p) + keys.w(p) / 2
+  const xOf = (m: number): number => {
+    const p = Math.max(LOWEST, Math.min(HIGHEST - 1, m))
+    const b = Math.floor(p)
+    return centre(b) + (centre(b + 1) - centre(b)) * (p - b)
+  }
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+  for (const v of lines) {
+    const i0 = Math.max(0, Math.floor((Math.max(lo, v.from) - v.origin) / HOP_SEC))
+    const i1 = Math.min(v.pitch.length, Math.ceil((Math.min(hi, v.to) - v.origin) / HOP_SEC))
+    if (i1 <= i0) continue
+    ctx.beginPath()
+    let pen = false
+    for (let i = i0; i < i1; i++) {
+      const p = v.pitch[i]
+      if (Number.isNaN(p)) {
+        pen = false
+        continue
+      }
+      const x = xOf(p)
+      const y = Math.min(line, yOf(v.origin + i * HOP_SEC))
+      if (pen) ctx.lineTo(x, y)
+      else ctx.moveTo(x, y)
+      pen = true
+    }
+    ctx.strokeStyle = hexA(v.color, 0.25)
+    ctx.lineWidth = keys.whiteW * 0.45
+    ctx.stroke()
+    ctx.strokeStyle = v.color
+    ctx.lineWidth = Math.max(2, keys.whiteW * 0.12)
+    ctx.stroke()
   }
 }
 

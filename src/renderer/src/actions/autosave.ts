@@ -1,5 +1,5 @@
 import { engine } from '../audio/engine'
-import { newId, type Song } from '../model/song'
+import { normalizeSong, reserveIds, type Song } from '../model/song'
 import { getState, type Recovery } from '../state/store'
 
 const INTERVAL = 30_000
@@ -40,14 +40,6 @@ export async function startAutosave(): Promise<() => void> {
   return () => window.clearInterval(id)
 }
 
-/** Note ids from the old session could collide with this one's, so everything gets fresh ids. */
-function withFreshIds(song: Song): Song {
-  return {
-    ...song,
-    tracks: song.tracks.map((t) => ({ ...t, id: newId(), notes: t.notes.map((n) => ({ ...n, id: newId() })) }))
-  }
-}
-
 export function restoreRecovery(): void {
   const { recovery, dirty, fileName } = getState()
   if (!recovery) return
@@ -55,7 +47,10 @@ export function restoreRecovery(): void {
   engine.pause()
   engine.seek(0)
   getState().set({ playing: false, recording: false, recovery: null })
-  getState().loadSong(withFreshIds(recovery.song), recovery.fileName, recovery.filePath)
+  // recorded takes are already on disk; the song refers to them by id
+  const song = normalizeSong(recovery.song)
+  reserveIds(song)
+  getState().loadSong(song, recovery.fileName, recovery.filePath)
   getState().set({ dirty: true })
   getState().notify(`Recovered ${recovery.fileName}. Save it to keep it.`)
 }

@@ -1,5 +1,6 @@
 import { engine } from '../audio/engine'
 import { beginTake, commitTake, liveTake, liveTrail, wallNow, type LiveNote } from '../audio/midiInput'
+import { beginVocalCapture, finishVocalCapture, type VocalSession } from '../audio/vocalRecorder'
 import { songEndTick, tempoMap, ticksPerBar, ticksPerBeat } from '../model/song'
 import { savePref } from '../state/prefs'
 import { getState, useStore } from '../state/store'
@@ -18,6 +19,13 @@ export function stop(): void {
   const st = getState()
   engine.pause()
   engine.freeRun = false
+  if (st.vocalRec) {
+    const n = finishVocalCapture()
+    const what = st.vocalRec.kind === 'harmony' ? 'harmony voice' : 'take'
+    getState().notify(n ? `Recorded ${n} ${what}${n === 1 ? '' : 's'}. Autotune is being applied.` : 'Nothing was recorded')
+    getState().set({ playing: false, recording: false, vocalRec: null })
+    return
+  }
   if (st.recording) {
     const n = commitTake()
     const where = st.splitHands ? 'split between the left and right hand' : 'into the active track'
@@ -46,6 +54,44 @@ export async function toggleRecord(): Promise<void> {
   if (loopOn && loop) engine.seek(map.tickToSec(loop.start))
   const tick = map.secToTick(engine.time())
   const preroll = (countIn * ticksPerBar(song) * 60) / (map.bpmAt(tick) * song.ppq)
+  await engine.play(preroll)
+  getState().set({ playing: true })
+}
+
+/**
+ * Records the microphone. A plain take goes into one track; with a loop on, every pass becomes
+ * another take. A harmony stack records one voice per loop pass, with a guide tone for each.
+ */
+export async function recordVocals(session: VocalSession): Promise<void> {
+  const st = getState()
+  if (st.recording || st.vocalRec) {
+    stop()
+    return
+  }
+  if (st.playing) stop()
+  const { song, countIn } = getState()
+  const map = tempoMap(song)
+  // harmonies need a loop: use the one set, or loop four bars from here
+  if (session.kind === 'harmony' && !(getState().loop && getState().loopOn)) {
+    const bar = ticksPerBar(song)
+    const here = Math.floor(map.secToTick(engine.time()) / bar) * bar
+    setLoop(here, here + bar * 4)
+  }
+  const { loop, loopOn } = getState()
+  if (loopOn && loop) engine.seek(map.tickToSec(loop.start))
+  const from = engine.time()
+  try {
+    await beginVocalCapture(session, from)
+  } catch (err) {
+    getState().notify(`Couldn't open the microphone. ${err instanceof Error ? err.message : ''} Check that one is plugged in and allowed in Windows privacy settings.`, 'error')
+    return
+  }
+  engine.freeRun = true
+  getState().set({
+    recording: true,
+    vocalRec: { kind: session.kind, trackIds: session.trackIds, voices: session.voices, pass: 0 }
+  })
+  const preroll = (Math.max(1, countIn) * ticksPerBar(song) * 60) / (map.bpmAt(map.secToTick(from)) * song.ppq)
   await engine.play(preroll)
   getState().set({ playing: true })
 }
@@ -153,7 +199,8 @@ export interface ViewClock {
  * runs on the wall clock, so a jam trails up the screen without the song moving.
  */
 export function viewClock(): ViewClock {
-  const { recording, studio, playing } = getState()
+  const { recording, studio, playing, vocalRec } = getState()
+  if (vocalRec) return { rising: false, time: engine.time(), songVisible: true, live: undefined }
   if (recording) return { rising: true, time: engine.time(), songVisible: true, live: liveTake() }
   if (studio && playing) return { rising: true, time: engine.time(), songVisible: true, live: liveTrail(engine.time()) }
   if (studio) {

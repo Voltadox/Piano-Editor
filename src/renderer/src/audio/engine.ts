@@ -1,13 +1,27 @@
 import type { MIDIController } from 'spessasynth_core'
 import { WorkletSynthesizer } from 'spessasynth_lib'
 import processorUrl from 'spessasynth_lib/dist/spessasynth_processor.min.js?url'
-import { tempoMap, ticksPerBar, ticksPerBeat, type Song } from '../model/song'
-import { buildEvents, CC, eventIndexAt, OFF, ON, PB, PC, type EventList, type PlayEvent } from './events'
+import type { AudioClip, AudioTrack } from '../model/audio'
+import { audioAudible, tempoMap, ticksPerBar, ticksPerBeat, type Song } from '../model/song'
+import { toBuffer } from './takes'
+import { buildChain, type Chain } from './vocalChain'
+import { clipAudio } from './vocals'
+import { buildEvents, CC, eventIndexAt, mixerCCs, OFF, ON, PB, PC, type EventList, type PlayEvent } from './events'
 
 const LOOKAHEAD = 0.12 // seconds of events queued in the synth ahead of the playhead
 const START_DELAY = 0.04
 
 type Listener = () => void
+
+/** One audio track's path to the speakers: clip sum, effects chain, level and pan. */
+interface Strip {
+  input: GainNode
+  chain: Chain
+  preset: string
+  amount: number
+  vol: GainNode
+  pan: StereoPannerNode
+}
 
 /**
  * Owns the AudioContext, the soundfont synth and the transport clock.
@@ -33,7 +47,8 @@ class Engine {
   private timer: number | null = null
   /** Notes whose note-on has been queued but whose note-off has not. */
   private sounding = new Map<number, { ch: number; pitch: number }>()
-  private programs = new Map<number, number>()
+  /** channel -> 'bank:program' last sent */
+  private programs = new Map<number, string>()
 
   /** Keys currently held on a connected MIDI keyboard: pitch -> velocity. */
   liveKeys = new Map<number, number>()
@@ -48,6 +63,12 @@ class Engine {
   /** Clock mapping from before the latest loop jump, used until the (pre-queued) jump is reached. */
   private prev: { startCtx: number; startPos: number } | null = null
   private clicks: OscillatorNode[] = []
+  private strips = new Map<number, Strip>()
+  private voices: AudioBufferSourceNode[] = []
+  /** Told the audio time at which a song time plays: at every start and every loop jump (for recording). */
+  onAnchor: ((ctxTime: number, songTime: number) => void) | null = null
+  /** Called on every scheduler tick with the song time (drives the harmony guide tone). */
+  onTick: ((songTime: number) => void) | null = null
   onEnded: Listener | null = null
 
   init(): Promise<void> {
@@ -56,8 +77,15 @@ class Engine {
       await ctx.audioWorklet.addModule(processorUrl)
       const synth = new WorkletSynthesizer(ctx)
       const master = ctx.createGain()
+      // a gentle limiter keeps a full mix of piano, drums and vocals out of clipping
+      const limiter = ctx.createDynamicsCompressor()
+      limiter.threshold.value = -3
+      limiter.knee.value = 3
+      limiter.ratio.value = 12
+      limiter.attack.value = 0.003
+      limiter.release.value = 0.15
       synth.connect(master)
-      master.connect(ctx.destination)
+      master.connect(limiter).connect(ctx.destination)
       this.ctx = ctx
       this.synth = synth
       this.master = master
@@ -98,10 +126,13 @@ class Engine {
   }
 
   setSong(song: Song): void {
+    const prev = this.song
     this.song = song
     this.list = buildEvents(song)
     if (this.playing) this.reconcile()
     else this.applyPrograms(song)
+    if (!prev || prev.tracks !== song.tracks) this.applyMix(song)
+    if (!prev || prev.audioTracks !== song.audioTracks || prev.tracks !== song.tracks) this.applyAudioMix(song)
   }
 
   /** `preroll` seconds are played before the current position, with clicks (a recording count-in). */
@@ -119,6 +150,8 @@ class Engine {
     this.prerollEnd = preroll > 0 ? this.pos : -Infinity
     this.prev = null
     this.playing = true
+    this.clipsSpanning(from, this.startCtx)
+    this.onAnchor?.(this.startCtx, from)
     this.tick()
     this.timer = window.setInterval(() => this.tick(), 25)
   }
@@ -146,6 +179,7 @@ class Engine {
     this.prerollEnd = -Infinity
     for (const o of this.clicks) o.stop()
     this.clicks = []
+    this.stopVoices(this.ctx?.currentTime ?? 0)
     const synth = this.synth
     if (!synth || !this.ctx) return
     const at = Math.max(this.ctx.currentTime, this.ctxAt(this.schedUntil))
@@ -181,9 +215,13 @@ class Engine {
       this.schedUntil = loop.start
       this.cursor = eventIndexAt(this.list.events, loop.start)
       this.prepareChannels(loop.start, at)
+      this.stopVoices(at)
+      this.clipsSpanning(loop.start, at)
+      this.onAnchor?.(at, loop.start)
       until = horizon()
     }
     this.scheduleTo(until)
+    this.onTick?.(this.time())
     const ev = this.list.events
     const looping = loop !== null && this.schedUntil <= loop.end
     if (!this.freeRun && !looping && this.time() > this.list.duration + 0.3 && this.cursor >= ev.length) {
@@ -196,6 +234,7 @@ class Engine {
     const ev = this.list.events
     while (this.cursor < ev.length && ev[this.cursor].time < until) this.fire(ev[this.cursor++])
     this.scheduleClicks(this.schedUntil, until)
+    this.clipStarts(this.schedUntil, until)
     this.schedUntil = Math.max(this.schedUntil, until)
   }
 
@@ -249,7 +288,10 @@ class Engine {
         synth.pitchWheel(e.ch, e.a, opts)
         return
       case PC:
-        if (e.time > 0) synth.programChange(e.ch, e.a, opts)
+        if (e.time > 0) {
+          synth.controllerChange(e.ch, 0 as MIDIController, e.b, opts)
+          synth.programChange(e.ch, e.a, opts)
+        }
     }
   }
 
@@ -297,15 +339,129 @@ class Engine {
     }
   }
 
+  // ---------- audio tracks ----------
+
+  /** The strip for an audio track, rebuilding its effects chain when the preset or amount changes. */
+  private strip(t: AudioTrack): Strip {
+    const ctx = this.ctx!
+    let s = this.strips.get(t.id)
+    if (!s) {
+      const input = ctx.createGain()
+      const chain = buildChain(ctx, t.preset, t.amount)
+      const vol = ctx.createGain()
+      const pan = ctx.createStereoPanner()
+      vol.gain.value = this.song && audioAudible(t, this.song) ? t.volume : 0
+      pan.pan.value = t.pan
+      input.connect(chain.input)
+      chain.output.connect(vol).connect(pan).connect(this.master!)
+      s = { input, chain, preset: t.preset, amount: t.amount, vol, pan }
+      this.strips.set(t.id, s)
+    } else if (s.preset !== t.preset || Math.abs(s.amount - t.amount) > 0.001) {
+      // swap the chain between the clip input and the fader; playing clips carry on through it
+      s.input.disconnect()
+      s.chain.output.disconnect()
+      s.chain = buildChain(ctx, t.preset, t.amount)
+      s.input.connect(s.chain.input)
+      s.chain.output.connect(s.vol)
+      s.preset = t.preset
+      s.amount = t.amount
+    }
+    return s
+  }
+
+  private applyAudioMix(song: Song): void {
+    if (!this.ctx || !this.master) return
+    const now = this.ctx.currentTime
+    for (const t of song.audioTracks) {
+      const s = this.strip(t)
+      s.vol.gain.setTargetAtTime(audioAudible(t, song) ? t.volume : 0, now, 0.02)
+      s.pan.pan.setTargetAtTime(t.pan, now, 0.02)
+    }
+    for (const [id, s] of this.strips) {
+      if (song.audioTracks.some((t) => t.id === id)) continue
+      s.pan.disconnect()
+      this.strips.delete(id)
+    }
+  }
+
+  private clipStarts(from: number, to: number): void {
+    const song = this.song
+    if (!song?.audioTracks.length || to <= from) return
+    const map = tempoMap(song)
+    for (const t of song.audioTracks)
+      for (const c of t.clips) {
+        const s = map.tickToSec(c.tick)
+        if (s >= from && s < to) this.startClip(t, c, this.ctxAt(s), 0)
+      }
+  }
+
+  /** Starts clips already under way at song time `pos`, part-way through, at audio time `at`. */
+  private clipsSpanning(pos: number, at: number): void {
+    const song = this.song
+    if (!song?.audioTracks.length) return
+    const map = tempoMap(song)
+    for (const t of song.audioTracks)
+      for (const c of t.clips) {
+        const s = map.tickToSec(c.tick)
+        if (s < pos && s + c.duration > pos) this.startClip(t, c, at, pos - s)
+      }
+  }
+
+  private startClip(t: AudioTrack, c: AudioClip, at: number, into: number): void {
+    const ctx = this.ctx
+    const audio = this.song && ctx ? clipAudio(this.song, t, c) : null
+    if (!ctx || !audio) return
+    const when = Math.max(ctx.currentTime, at)
+    const skip = into + (when - at)
+    const dur = c.duration - skip
+    if (dur <= 0.01) return
+    const src = ctx.createBufferSource()
+    src.buffer = toBuffer(ctx, audio.pcm, audio.rate)
+    const g = ctx.createGain()
+    // fades, measured from the clip's own start and end
+    const fadeIn = Math.max(0.005, c.fadeIn)
+    const fadeOut = Math.max(0.005, c.fadeOut)
+    g.gain.setValueAtTime(Math.min(1, skip / fadeIn), when)
+    if (skip < fadeIn) g.gain.linearRampToValueAtTime(1, when + fadeIn - skip)
+    const outAt = when + Math.max(0, dur - fadeOut)
+    g.gain.setValueAtTime(1, outAt)
+    g.gain.linearRampToValueAtTime(0, when + dur)
+    src.connect(g).connect(this.strip(t).input)
+    src.start(when, c.offset + skip, dur)
+    this.voices.push(src)
+    src.onended = () => (this.voices = this.voices.filter((v) => v !== src))
+  }
+
+  private stopVoices(at: number): void {
+    for (const v of this.voices) {
+      try {
+        v.stop(at)
+      } catch {
+        // already stopped
+      }
+    }
+    this.voices = []
+  }
+
+  /** Sends every track's mixer settings straight to the synth, so changes are heard immediately. */
+  private applyMix(song: Song): void {
+    const synth = this.synth
+    if (!synth) return
+    for (const t of song.tracks) for (const [num, val] of mixerCCs(t)) synth.controllerChange(t.channel, num as MIDIController, val)
+  }
+
   private applyPrograms(song: Song): void {
     const synth = this.synth
     if (!synth) return
     for (const t of song.tracks) {
-      if (this.programs.get(t.channel) === t.program) continue
+      const id = `${t.bank}:${t.program}`
+      if (this.programs.get(t.channel) === id) continue
+      synth.controllerChange(t.channel, 0 as MIDIController, t.bank)
       synth.programChange(t.channel, t.program)
-      this.programs.set(t.channel, t.program)
+      this.programs.set(t.channel, id)
     }
   }
+
 
   // ---------- auditioning ----------
 

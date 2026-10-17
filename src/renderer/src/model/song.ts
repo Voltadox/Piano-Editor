@@ -1,3 +1,6 @@
+import type { AudioTrack } from './audio'
+import type { Beat } from './beat'
+
 export interface Note {
   id: number
   pitch: number
@@ -23,6 +26,8 @@ export interface Track {
   name: string
   channel: number
   program: number
+  /** soundfont bank (MIDI bank select MSB) */
+  bank: number
   color: string
   muted: boolean
   solo: boolean
@@ -30,6 +35,12 @@ export interface Track {
   notes: Note[]
   ccs: CC[]
   bends: Bend[]
+  /** mixer: 0..1 level, -1..1 pan, 0..1 reverb send */
+  volume: number
+  pan: number
+  reverb: number
+  /** a drum-machine track: its notes are generated from this */
+  beat?: Beat
 }
 
 export interface Tempo {
@@ -37,11 +48,27 @@ export interface Tempo {
   bpm: number
 }
 
+export interface Section {
+  id: number
+  name: string
+  /** first bar (0-based); a section runs until the next one starts */
+  bar: number
+}
+
+export interface SongKey {
+  tonic: number
+  minor: boolean
+}
+
 export interface Song {
   ppq: number
   tempos: Tempo[]
   timeSig: [number, number]
   tracks: Track[]
+  audioTracks: AudioTrack[]
+  sections: Section[]
+  /** set by the user; null means detect it from the notes */
+  key: SongKey | null
 }
 
 export const PALETTE = [
@@ -72,24 +99,39 @@ export function newTrack(song: Song, name?: string): Track {
     name: name ?? `Track ${song.tracks.length + 1}`,
     channel,
     program: 0,
+    bank: 0,
     color: PALETTE[song.tracks.length % PALETTE.length],
     muted: false,
     solo: false,
     notes: [],
     ccs: [],
-    bends: []
+    bends: [],
+    volume: 0.8,
+    pan: 0,
+    reverb: 0.3
+  }
+}
+
+/** Fills in anything a song saved by an older version of Keyfall lacks. */
+export function normalizeSong(song: Song): Song {
+  return {
+    ...song,
+    tracks: song.tracks.map((t) => ({ ...t, bank: t.bank ?? 0, volume: t.volume ?? 0.8, pan: t.pan ?? 0, reverb: t.reverb ?? 0.3, ccs: t.ccs ?? [], bends: t.bends ?? [] })),
+    audioTracks: song.audioTracks ?? [],
+    sections: song.sections ?? [],
+    key: song.key ?? null
   }
 }
 
 export function emptySong(): Song {
-  const song: Song = { ppq: 480, tempos: [{ tick: 0, bpm: 120 }], timeSig: [4, 4], tracks: [] }
+  const song: Song = { ppq: 480, tempos: [{ tick: 0, bpm: 120 }], timeSig: [4, 4], tracks: [], audioTracks: [], sections: [], key: null }
   song.tracks.push(newTrack(song, 'Piano'))
   return song
 }
 
 /** A short two-hand loop so the editor opens with something to look at. */
 export function demoSong(): Song {
-  const song: Song = { ppq: 480, tempos: [{ tick: 0, bpm: 100 }], timeSig: [4, 4], tracks: [] }
+  const song: Song = { ppq: 480, tempos: [{ tick: 0, bpm: 100 }], timeSig: [4, 4], tracks: [], audioTracks: [], sections: [], key: null }
   const left = newTrack(song, 'Left hand')
   song.tracks.push(left)
   const right = newTrack(song, 'Right hand')
@@ -220,9 +262,14 @@ export function songDuration(song: Song): number {
 export const ticksPerBeat = (song: Song): number => (song.ppq * 4) / song.timeSig[1]
 export const ticksPerBar = (song: Song): number => ticksPerBeat(song) * song.timeSig[0]
 
+const anySolo = (song: Song): boolean => song.tracks.some((t) => t.solo) || song.audioTracks.some((t) => t.solo)
+
 export function isAudible(track: Track, song: Song): boolean {
-  const anySolo = song.tracks.some((t) => t.solo)
-  return !track.muted && (!anySolo || track.solo)
+  return !track.muted && (!anySolo(song) || track.solo)
+}
+
+export function audioAudible(track: AudioTrack, song: Song): boolean {
+  return !track.muted && (!anySolo(song) || track.solo)
 }
 
 // ---------- snapping ----------
@@ -243,3 +290,22 @@ export function snapTicks(ppq: number, snap: Snap): number {
 }
 
 export const snapTo = (tick: number, grid: number): number => Math.round(tick / grid) * grid
+
+/** Moves the id counter past every id in a song loaded from disk, so new ids never collide with its own. */
+export function reserveIds(song: Song): void {
+  let max = 0
+  const see = (id: number): void => {
+    if (id > max) max = id
+  }
+  for (const t of song.tracks) {
+    see(t.id)
+    for (const n of t.notes) see(n.id)
+    for (const p of t.beat?.patterns ?? []) see(p.id)
+  }
+  for (const t of song.audioTracks) {
+    see(t.id)
+    for (const c of t.clips) see(c.id)
+  }
+  for (const s of song.sections) see(s.id)
+  nextId = Math.max(nextId, max + 1)
+}

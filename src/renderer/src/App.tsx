@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { engine } from './audio/engine'
 import { initMidiInput } from './audio/midiInput'
 import { startAutosave } from './actions/autosave'
+import { watchTakes } from './audio/vocals'
 import { handleDroppedFiles, newSong, openMidi, openMidiPath, restoreSoundfont, saveSong } from './actions/files'
 import { restoreBackground } from './actions/look'
 import { goToStart, seekBy, stop, syncTransport, toggleLoop, toggleMetronome, toggleRecord, togglePlay, toggleStudio } from './actions/transport'
@@ -27,7 +28,7 @@ import { FallView } from './view/FallView'
 import { VelocityLane } from './view/VelocityLane'
 import { Overview } from './ui/Overview'
 import { Banners, Busy, StatusBar, Toast } from './ui/Overlays'
-import { TrackDrawer } from './ui/TrackDrawer'
+import { Drawer } from './ui/Drawer'
 import { Transport } from './ui/Transport'
 import { ContextMenu } from './ui/ContextMenu'
 import { StudioPanel } from './ui/StudioPanel'
@@ -160,6 +161,7 @@ export default function App(): React.JSX.Element {
       getState().set({ playing: false })
     }
     const unsyncTransport = syncTransport()
+    const unwatchTakes = watchTakes()
     let stopAutosave: (() => void) | null = null
     void startAutosave().then((stopFn) => (stopAutosave = stopFn))
     void engine.init().then(() => engine.setVolume(getState().volume))
@@ -176,6 +178,7 @@ export default function App(): React.JSX.Element {
     return () => {
       unsub()
       unsyncTransport()
+      unwatchTakes()
       stopAutosave?.()
       window.removeEventListener('keydown', onKey)
     }
@@ -209,7 +212,7 @@ export default function App(): React.JSX.Element {
         <FallView />
         <StudioPanel />
         <Banners />
-        <TrackDrawer />
+        <Drawer />
       </main>
       <StatusBar />
       <Toast />

@@ -1,4 +1,14 @@
-import { isAudible, tempoMap, trackTimes, type Song } from '../model/song'
+import { isAudible, tempoMap, trackTimes, type Song, type Track } from '../model/song'
+
+/** A track's mixer settings as MIDI controllers: volume (7), pan (10) and reverb send (91). */
+export function mixerCCs(t: Track): [number, number][] {
+  const clamp = (v: number): number => Math.max(0, Math.min(127, Math.round(v)))
+  return [
+    [7, clamp(t.volume * 127)],
+    [10, clamp(64 + t.pan * 63)],
+    [91, clamp(t.reverb * 127)]
+  ]
+}
 
 export const OFF = 0
 export const PC = 1
@@ -40,8 +50,12 @@ export function buildEvents(song: Song): EventList {
     const audible = isAudible(t, song)
     const ch = t.channel
     const times = trackTimes(t, map)
-    events.push({ time: 0, kind: PC, ch, a: t.program, b: 0, id: -1 })
-    for (const c of t.ccs) events.push({ time: map.tickToSec(c.tick), kind: CC, ch, a: c.num, b: c.val, id: -1 })
+    // program change carries the bank in `b`
+    events.push({ time: 0, kind: PC, ch, a: t.program, b: t.bank, id: -1 })
+    for (const [num, val] of mixerCCs(t)) events.push({ time: 0, kind: CC, ch, a: num, b: val, id: -1 })
+    // the mixer owns each track's volume and pan
+    for (const c of t.ccs)
+      if (c.num !== 7 && c.num !== 10 && c.num !== 0 && c.num !== 32) events.push({ time: map.tickToSec(c.tick), kind: CC, ch, a: c.num, b: c.val, id: -1 })
     for (const b of t.bends) events.push({ time: map.tickToSec(b.tick), kind: PB, ch, a: b.val, b: 0, id: -1 })
     t.notes.forEach((n, i) => {
       const start = times.start[i]

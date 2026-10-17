@@ -17,6 +17,26 @@ npm run typecheck
 
 ## Using it
 
+### The studio panel (T)
+
+The panel on the right has five tabs:
+
+- **Tracks:** instruments (the loaded soundfont's own presets, with bank and program), colours, mute/solo.
+- **Mixer:** level, pan and reverb for every note track, level/pan/effect for vocals, and the master level. A limiter keeps the mix out of clipping.
+- **Vocals:** pick a microphone, record takes (with a loop on, every pass is kept as a take; switch between them per clip, or split a clip at the playhead to use different takes in each half). Each vocal track has:
+  - **Autotune:** to the song's key (detected from the notes, or set by you), or *Follow chords*, which aims the voice at the root, third or fifth of whatever chord the piano is playing. *Retune* runs from natural glides to the hard, stepped sound.
+  - **Voice character:** tone (deeper ↔ airier, without changing pitch), pitch in semitones, and a few cents of detune.
+  - **Effect presets:** Clean, Dreamy, Underwater, Lo-fi tape and Haze, each with an amount.
+  - **Harmony stack:** pick voices (root, third, fifth, octave) and a register, then record one pass per voice over the loop. A soft guide tone plays each voice's note from the piano's chords so you can hum on key (use headphones). Each voice gets its own track, pan and detune.
+  - The tuned melody is drawn as a line over the keys it sings, in the editor and in videos.
+- **Beat:** generate an original drum part in a style (lo-fi, boom bap, trap, ballad, pop, house, rock, jazz, reggaeton, cinematic) at a tempo you choose. Kicks follow your bass notes, hats follow how busy the piano is, with fills every four bars and crashes into new phrases. *Try another* gives a new variation. Edit patterns on the step grid (Shift+click for a soft hit), choose which pattern plays in each bar, and add starter patterns.
+- **Sections:** mark Intro/Verse/Chorus… at the playhead's bar, then duplicate, delete or reorder sections; notes, pedal, drums and vocals move with them.
+
+Songs with vocals, a beat or sections are saved as **.keyfall** files (a zip of the song and its recorded takes). MIDI files keep only the notes. Exports (WAV, MP3, video) include the tuned vocals with their effects.
+
+**Backgrounds:** the picture button next to the soundfont menu has eight dark, calm 4K photos (from Unsplash, credited in the menu), a *Fade* slider, or your own image.
+
+
 - **Open a MIDI file:** Ctrl+O, or drag it onto the window.
 - **Soundfonts:** open the soundfont menu in the top bar and choose *Add soundfonts…* (pick several at once), or drop `.sf2`/`.sf3` files anywhere. Switch between them from the same menu; the pencil renames one, the × takes it off the list (the file stays where it is). The last one used is reloaded next time.
 - **Tracks** (T): colour, name, instrument, drum kit, mute/solo, add or delete tracks. New notes go into the highlighted track.

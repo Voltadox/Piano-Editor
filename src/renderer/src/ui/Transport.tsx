@@ -13,10 +13,12 @@ import {
   switchSoundfont
 } from '../actions/files'
 import { SNAPS, tempoMap, ticksPerBar, ticksPerBeat, type Snap } from '../model/song'
-import { invertSelection, quantize, selectAll, selectRange, selectSamePitch, selectTrack, setTempo, setTimeSig } from '../state/edit'
+import { choosePreset, invertSelection, quantize, selectAll, selectRange, selectSamePitch, selectTrack, setTempo, setTimeSig } from '../state/edit'
 import { savePref } from '../state/prefs'
 import { useStore, getState } from '../state/store'
 import { setCountIn, togglePlay, toggleLoop, toggleMetronome, toggleRecord, toggleSplitHands, toggleStudio, goToStart } from '../actions/transport'
+import { clearBackground, pickBackgroundImage, setTheme, usePresetBackground } from '../actions/look'
+import { BACKGROUNDS } from '../view/backgrounds'
 import * as I from './icons'
 
 function fmtTime(sec: number): string {
@@ -133,6 +135,8 @@ function SoundfontMenu(): React.JSX.Element {
   const sfLoading = useStore((s) => s.sfLoading)
   const library = useStore((s) => s.sfLibrary)
   const active = useStore((s) => s.sfActive)
+  const presets = useStore((s) => s.sfPresets)
+  const activeTrack = useStore((s) => s.song.tracks.find((t) => t.id === s.activeTrackId))
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const commit = (): void => {
@@ -198,6 +202,27 @@ function SoundfontMenu(): React.JSX.Element {
           <button role="menuitem" onClick={run(() => void addSoundfonts())}>
             <I.IconPlus size={16} /> Add soundfonts…
           </button>
+          {presets.length > 0 && activeTrack && (
+            <>
+              <div className="menu-label">
+                {presets.length} preset{presets.length === 1 ? '' : 's'} in {sfName} · click to use on {activeTrack.name}
+              </div>
+              <div className="sf-list presets">
+                {presets.map((p) => {
+                  const on = p.bank === activeTrack.bank && p.program === activeTrack.program && p.drum === (activeTrack.channel === 9)
+                  return (
+                    <div key={`${p.drum ? 'd' : 'p'}${p.bank}:${p.program}`} className={`sf-row${on ? ' on' : ''}`}>
+                      <button className="sf-pick" onClick={() => choosePreset(activeTrack.id, p.drum, p.bank, p.program)}>
+                        <span className="sf-dot" />
+                        {p.name}
+                        <span className="kbd">{p.drum ? 'drums' : `${p.bank}:${p.program + 1}`}</span>
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
         </>
       )}
     </Menu>
@@ -277,6 +302,41 @@ function InputMenu(): React.JSX.Element {
             <input id="vel-level" className="range" type="range" min={30} max={127} value={velLevel} onChange={(e) => set({ velLevel: Number(e.target.value) })} />
             <span className="kbd">{velLevel}</span>
           </label>
+        </>
+      )}
+    </Menu>
+  )
+}
+
+/** Background photos and fade, next to the soundfont menu. */
+function BackgroundMenu(): React.JSX.Element {
+  const theme = useStore((s) => s.theme)
+  const current = theme.background === 'image' && theme.imagePath?.startsWith('preset:') ? theme.imagePath.slice(7) : null
+  return (
+    <Menu trigger={<I.IconImage size={16} />} title="Background" className={`icon-btn${theme.background === 'image' ? ' active' : ''}`}>
+      {(run) => (
+        <>
+          <div className="menu-label">Background</div>
+          <div className="bg-grid">
+            {BACKGROUNDS.map((b) => (
+              <button
+                key={b.file}
+                className={`bg-thumb${current === b.file ? ' on' : ''}`}
+                title={`${b.title} · photo by ${b.photographer} on Unsplash`}
+                onClick={() => void usePresetBackground(b.file)}
+              >
+                <img src={`backgrounds/thumbs/${b.file}`} alt="" />
+                <span>{b.title}</span>
+              </button>
+            ))}
+          </div>
+          <label className="menu-slider" title="How far the photo is faded behind the notes">
+            Fade
+            <input id="bg-fade" className="range" type="range" min={0.2} max={0.9} step={0.01} value={theme.imageDim} onChange={(e) => setTheme({ imageDim: Number(e.target.value) })} />
+          </label>
+          <button role="menuitem" onClick={run(() => void pickBackgroundImage())}>Your own image…</button>
+          <button role="menuitem" className={theme.background !== 'image' ? 'checked' : ''} onClick={run(clearBackground)}>No image (plain colour)</button>
+          <div className="menu-empty credit">Photos from Unsplash, by {BACKGROUNDS.map((b) => b.photographer).join(', ')}.</div>
         </>
       )}
     </Menu>
@@ -459,6 +519,7 @@ export function Transport(): React.JSX.Element {
           />
         </label>
         <SoundfontMenu />
+        <BackgroundMenu />
         <InputMenu />
         <ExportMenu />
         <button

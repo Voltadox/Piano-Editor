@@ -16,6 +16,7 @@
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",
     "@tonejs/midi": "^2.0.28",
+    "fflate": "0.8.2",
     "mediabunny": "^1.61.6",
     "midi-file": "^1.2.4",
     "react": "^19.3.1",

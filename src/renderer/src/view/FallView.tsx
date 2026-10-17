@@ -4,6 +4,7 @@ import { HIGHEST, LOWEST, lowerBound, snapTicks, snapTo, tempoMap, trackTimes, t
 import { addNote, deleteNotes, mapNotes } from '../state/edit'
 import { getState } from '../state/store'
 import { pressKey, releaseKey } from '../audio/midiInput'
+import { vocalLines } from '../audio/vocals'
 import { countdown, viewClock } from '../actions/transport'
 import { drawScene, hitNote, keyLayout, pianoKeyLength, type Scene } from './draw'
 
@@ -50,6 +51,8 @@ export function FallView(): React.JSX.Element {
       take: clock.live,
       loop: st.loop && st.loopOn && clock.songVisible ? { start: map.tickToSec(st.loop.start), end: map.tickToSec(st.loop.end) } : null,
       hints: st.studio && st.studioChords ? st.studioHint : null,
+      vocals: clock.songVisible ? vocalLines(st.song) : undefined,
+      sections: st.song.sections,
       countdown: countdown(),
       theme: st.theme,
       bgImage: st.bgImage

@@ -1,0 +1,161 @@
+import type { VocalPreset } from '../model/audio'
+
+/**
+ * Effect chains for vocal presets, built from standard Web Audio nodes so the same chain runs
+ * live and in an OfflineAudioContext for export.
+ */
+
+export interface Chain {
+  input: AudioNode
+  output: AudioNode
+}
+
+const impulses = new WeakMap<BaseAudioContext, Map<string, AudioBuffer>>()
+
+/** A synthetic reverb tail: stereo noise fading out, getting darker as it decays. */
+function impulse(ctx: BaseAudioContext, seconds: number, damping: number): AudioBuffer {
+  let perCtx = impulses.get(ctx)
+  if (!perCtx) impulses.set(ctx, (perCtx = new Map()))
+  const id = `${seconds}:${damping}`
+  const hit = perCtx.get(id)
+  if (hit) return hit
+  const rate = ctx.sampleRate
+  const len = Math.floor(rate * seconds)
+  const buf = new AudioBuffer({ length: len, numberOfChannels: 2, sampleRate: rate })
+  let seed = 12345
+  const rand = (): number => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) * 2 - 1
+  for (let ch = 0; ch < 2; ch++) {
+    const data = buf.getChannelData(ch)
+    let lp = 0
+    for (let i = 0; i < len; i++) {
+      const t = i / len
+      // one-pole low-pass that closes as the tail decays
+      const a = 1 - damping * t * 0.95
+      lp = lp + (rand() - lp) * Math.max(0.02, a)
+      data[i] = lp * Math.pow(1 - t, 2.2)
+    }
+  }
+  perCtx.set(id, buf)
+  return buf
+}
+
+function reverb(ctx: BaseAudioContext, seconds: number, damping: number, preDelay: number): { input: AudioNode; output: AudioNode } {
+  const pre = ctx.createDelay(1)
+  pre.delayTime.value = preDelay
+  const conv = ctx.createConvolver()
+  conv.buffer = impulse(ctx, seconds, damping)
+  pre.connect(conv)
+  return { input: pre, output: conv }
+}
+
+/** A slowly wobbling short delay: chorus, doubling or tape wow depending on settings. */
+function wobble(ctx: BaseAudioContext, base: number, depth: number, rate: number): { input: AudioNode; output: AudioNode } {
+  const d = ctx.createDelay(0.1)
+  d.delayTime.value = base
+  const lfo = ctx.createOscillator()
+  lfo.frequency.value = rate
+  const amt = ctx.createGain()
+  amt.gain.value = depth
+  lfo.connect(amt).connect(d.delayTime)
+  lfo.start()
+  return { input: d, output: d }
+}
+
+function gain(ctx: BaseAudioContext, v: number): GainNode {
+  const g = ctx.createGain()
+  g.gain.value = v
+  return g
+}
+
+function filter(ctx: BaseAudioContext, type: BiquadFilterType, freq: number, q = 0.707): BiquadFilterNode {
+  const f = ctx.createBiquadFilter()
+  f.type = type
+  f.frequency.value = freq
+  f.Q.value = q
+  return f
+}
+
+function saturator(ctx: BaseAudioContext, drive: number): WaveShaperNode {
+  const ws = ctx.createWaveShaper()
+  const curve = new Float32Array(1024)
+  for (let i = 0; i < curve.length; i++) {
+    const x = (i / (curve.length - 1)) * 2 - 1
+    curve[i] = Math.tanh(x * drive) / Math.tanh(drive)
+  }
+  ws.curve = curve
+  return ws
+}
+
+/** Builds a preset's chain. `amount` (0..1) blends from nearly dry to the full effect. */
+export function buildChain(ctx: BaseAudioContext, preset: VocalPreset, amount: number): Chain {
+  const input = ctx.createGain()
+  const output = ctx.createGain()
+  const a = Math.max(0, Math.min(1, amount))
+  // rumble and mic thumps never help a vocal
+  const hp = filter(ctx, 'highpass', 110)
+  input.connect(hp)
+  const dry = gain(ctx, 1)
+  dry.connect(output)
+
+  const send = (node: { input: AudioNode; output: AudioNode }, level: number, from: AudioNode = hp): void => {
+    const g = gain(ctx, level)
+    from.connect(g).connect(node.input)
+    node.output.connect(output)
+  }
+
+  switch (preset) {
+    case 'clean': {
+      hp.connect(dry)
+      send(reverb(ctx, 1.4, 0.6, 0.015), 0.25 * a)
+      break
+    }
+    case 'dreamy': {
+      hp.connect(dry)
+      dry.gain.value = 1 - 0.35 * a
+      send(reverb(ctx, 5.5, 0.85, 0.045), 0.9 * a)
+      // a slow, dark echo underneath the reverb
+      const echo = ctx.createDelay(2)
+      echo.delayTime.value = 0.42
+      const fb = gain(ctx, 0.45)
+      const tone = filter(ctx, 'lowpass', 2600)
+      echo.connect(tone).connect(fb).connect(echo)
+      send({ input: echo, output: tone }, 0.35 * a)
+      break
+    }
+    case 'underwater': {
+      const lp = filter(ctx, 'lowpass', 1800 - 1100 * a, 0.9)
+      hp.connect(lp).connect(dry)
+      send(wobble(ctx, 0.018, 0.005, 0.25), 0.7 * a, lp)
+      send(reverb(ctx, 3.5, 0.9, 0.03), 0.6 * a, lp)
+      break
+    }
+    case 'tape': {
+      const band = filter(ctx, 'lowpass', 5200 - 2200 * a)
+      const lowCut = filter(ctx, 'highpass', 180 + 220 * a)
+      const sat = saturator(ctx, 1 + 3 * a)
+      const wow = wobble(ctx, 0.006, 0.0012 * a, 0.9)
+      hp.connect(lowCut).connect(sat).connect(band).connect(wow.input)
+      wow.output.connect(dry)
+      send(reverb(ctx, 1.8, 0.8, 0.02), 0.3 * a, band)
+      break
+    }
+    case 'haze': {
+      hp.connect(dry)
+      dry.gain.value = 1 - 0.45 * a
+      // two slightly detuned, delayed doubles spread left and right
+      for (const [delay, pan] of [
+        [0.019, -0.8],
+        [0.027, 0.8]
+      ]) {
+        const dbl = wobble(ctx, delay, 0.0025, 0.35 + Math.abs(pan) * 0.1)
+        const p = ctx.createStereoPanner()
+        p.pan.value = pan
+        dbl.output.connect(p)
+        send({ input: dbl.input, output: p }, 0.6 * a)
+      }
+      send(reverb(ctx, 7, 0.9, 0.06), 1.1 * a)
+      break
+    }
+  }
+  return { input, output }
+}

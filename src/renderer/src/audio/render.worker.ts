@@ -17,6 +17,16 @@ export interface RenderRequest {
   kbps?: number
 }
 
+/** Encode already-mixed audio (a mix with vocals) to a file. */
+export interface EncodeRequest {
+  encode: true
+  left: Float32Array
+  right: Float32Array
+  sampleRate: number
+  format: 'wav' | 'mp3'
+  kbps?: number
+}
+
 export type RenderReply =
   | { type: 'progress'; value: number }
   | { type: 'done'; data: Uint8Array }
@@ -25,8 +35,14 @@ export type RenderReply =
 
 const post = (msg: RenderReply, transfer: Transferable[] = []): void => (self as unknown as Worker).postMessage(msg, transfer)
 
-self.onmessage = async (e: MessageEvent<RenderRequest>) => {
+self.onmessage = async (e: MessageEvent<RenderRequest | EncodeRequest>) => {
   try {
+    if ('encode' in e.data) {
+      const r = e.data
+      const data = r.format === 'wav' ? encodeWav(r.left, r.right, r.sampleRate) : encodeMp3(r.left, r.right, r.sampleRate, r.kbps ?? 256)
+      post({ type: 'done', data }, [data.buffer])
+      return
+    }
     const req = e.data
     const { left, right } = await render(req)
     if (req.format === 'pcm') post({ type: 'pcm', left, right }, [left.buffer, right.buffer])
@@ -61,7 +77,10 @@ async function render(req: RenderRequest): Promise<{ left: Float32Array; right: 
       else if (x.kind === OFF) synth.noteOff(x.ch, x.a)
       else if (x.kind === CC) synth.controllerChange(x.ch, x.a as MIDIController, x.b)
       else if (x.kind === PB) synth.pitchWheel(x.ch, x.a)
-      else if (x.kind === PC) synth.programChange(x.ch, x.a)
+      else if (x.kind === PC) {
+        synth.controllerChange(x.ch, 0 as MIDIController, x.b)
+        synth.programChange(x.ch, x.a)
+      }
     }
     synth.process(left, right, pos, Math.min(BLOCK, total - pos))
     if (pos - lastReport > sr / 2) {

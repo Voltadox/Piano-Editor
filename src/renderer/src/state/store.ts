@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { demoSong, type Snap, type Song } from '../model/song'
+import type { GuideVoice } from '../model/audio'
 import { DEFAULT_THEME, type Theme } from '../view/theme'
 import { loadPref } from './prefs'
 
@@ -9,6 +10,17 @@ export interface SoundfontEntry {
   path: string
   /** display name, editable */
   name: string
+}
+
+export type DrawerTab = 'tracks' | 'mixer' | 'vocals' | 'beat' | 'sections'
+
+/** A vocal recording in progress, for the UI. */
+export interface VocalRecording {
+  kind: 'take' | 'harmony'
+  trackIds: number[]
+  voices?: GuideVoice[]
+  /** which pass (harmony voice) is being recorded */
+  pass: number
 }
 
 export interface RecentFile {
@@ -42,11 +54,23 @@ export interface EditorState {
   snap: Snap
   pxPerSec: number
   drawerOpen: boolean
+  drawerTab: DrawerTab
+  /** the audio track the Vocals tab is showing */
+  activeAudioId: number
+  micId: string
+  /** extra recording latency correction, milliseconds */
+  latencyMs: number
+  guideVolume: number
+  vocalRec: VocalRecording | null
+  /** the drum pattern the Beat tab is editing */
+  beatPattern: number
   playing: boolean
   recording: boolean
   volume: number
   sfName: string | null
   sfLibrary: SoundfontEntry[]
+  /** presets in the loaded soundfont */
+  sfPresets: { name: string; program: number; bank: number; drum: boolean }[]
   /** path of the soundfont currently loaded, if it is in the library */
   sfActive: string | null
   sfLoading: boolean
@@ -75,6 +99,8 @@ export interface EditorState {
   theme: Theme
   bgImage: ImageBitmap | null
   videoOpen: boolean
+  /** bumps when autotuned vocals finish processing, so views redraw */
+  vocalVersion: number
   /** right-click menu for the selection, at a window position */
   contextMenu: { x: number; y: number } | null
   recovery: Recovery | null
@@ -111,12 +137,20 @@ export const useStore = create<EditorState>()((set, get) => ({
   snap: '1/16',
   pxPerSec: 200,
   drawerOpen: false,
+  drawerTab: 'tracks',
+  activeAudioId: -1,
+  micId: loadPref('micId', ''),
+  latencyMs: loadPref('latencyMs', 0),
+  guideVolume: loadPref('guideVolume', 0.3),
+  vocalRec: null,
+  beatPattern: -1,
   playing: false,
   recording: false,
   volume: 0.8,
   sfName: null,
   sfLibrary: loadPref<SoundfontEntry[]>('soundfonts', []),
   sfActive: null,
+  sfPresets: [],
   sfLoading: false,
   midiInputs: [],
   toast: null,
@@ -136,6 +170,7 @@ export const useStore = create<EditorState>()((set, get) => ({
   theme: loadPref('theme', DEFAULT_THEME),
   bgImage: null,
   videoOpen: false,
+  vocalVersion: 0,
   contextMenu: null,
   recovery: null,
   recent: loadPref<RecentFile[]>('recent', []),

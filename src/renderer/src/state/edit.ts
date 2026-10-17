@@ -11,6 +11,7 @@ import {
   type CC,
   type Note,
   type Song,
+  type SongKey,
   type Track
 } from '../model/song'
 import { getState, useStore } from './store'
@@ -50,6 +51,33 @@ export function removeTrack(id: number): void {
   }
   getState().apply((s) => ({ ...s, tracks: s.tracks.filter((t) => t.id !== id) }))
   if (activeTrackId === id) useStore.setState({ activeTrackId: getState().song.tracks[0].id })
+}
+
+/**
+ * Changes a track's mixer settings. Tracks sharing a MIDI channel can't be mixed apart, so a
+ * track that shares one is first moved to a free channel.
+ */
+export function setTrackMix(id: number, patch: Partial<Pick<Track, 'volume' | 'pan' | 'reverb' | 'muted' | 'solo'>>): void {
+  const { song } = getState()
+  const t = song.tracks.find((x) => x.id === id)
+  if (!t) return
+  const shared = t.channel !== DRUM_CHANNEL && song.tracks.some((o) => o.id !== id && o.channel === t.channel)
+  const moved = shared && ('volume' in patch || 'pan' in patch || 'reverb' in patch) ? { channel: newTrack({ ...song, tracks: song.tracks.filter((o) => o.id !== id) }).channel } : {}
+  updateTrack(id, { ...patch, ...moved })
+}
+
+export function setSongKey(key: SongKey | null): void {
+  getState().apply((song) => ({ ...song, key }))
+}
+
+/** Gives a track a soundfont preset (moving it on or off the drum channel as needed) and plays a sample note. */
+export function choosePreset(id: number, drum: boolean, bank: number, program: number): void {
+  const t = getState().song.tracks.find((x) => x.id === id)
+  if (!t) return
+  if (drum !== (t.channel === DRUM_CHANNEL)) setDrums(id, drum)
+  updateTrack(id, { bank, program })
+  const ch = getState().song.tracks.find((x) => x.id === id)?.channel ?? 0
+  void import('../audio/engine').then(({ engine }) => engine.previewNote(ch, drum ? 38 : 60, 90, 0.5))
 }
 
 export function setDrums(id: number, drums: boolean): void {

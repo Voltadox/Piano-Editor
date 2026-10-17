@@ -5,6 +5,13 @@ import { setLoop, toggleMetronome, toggleRecord, toggleStudio } from './actions/
 import { pressKey, releaseKey, shapeVelocity } from './audio/midiInput'
 import { detectKey, keyName, recognizeChord, suggestChords } from './model/harmony'
 import { splitHands } from './model/hands'
+import { packProject, unpackProject } from './actions/project'
+import { usePresetBackground } from './actions/look'
+import { detectPitch, pitchShifts, psola } from './audio/pitch'
+import { addTake, getTake } from './audio/takes'
+import { processAll } from './audio/vocals'
+import { addSection, duplicateSection, generateDrums, moveSection } from './state/arrange'
+import { addAudioTrack, addRecordedPasses } from './state/vocalEdit'
 import { selectAll, selectionSustained, setSustain } from './state/edit'
 import { writeMidiFile } from './model/midiio'
 import { emptySong, tempoMap, ticksPerBar } from './model/song'
@@ -136,6 +143,83 @@ export async function runSelftest(arg: string): Promise<void> {
     await wait(400)
     await window.keyfall.selftestCapture(`${outDir}/window-video.png`)
     getState().set({ videoOpen: false })
+
+    log('soundfont presets', getState().sfPresets.length, getState().sfPresets.slice(0, 3).map((p) => `${p.name} ${p.bank}:${p.program}`).join(', '))
+
+    // autotune: a hummed "voice" 40 cents flat of A3 with vibrato, tuned to C major
+    {
+      const rate = 48000
+      const n = rate * 2
+      const voice = new Float32Array(n)
+      let phase = 0
+      for (let i = 0; i < n; i++) {
+        const t = i / rate
+        const f = 220 * Math.pow(2, (-0.4 + 0.15 * Math.sin(2 * Math.PI * 5 * t)) / 12)
+        phase += (2 * Math.PI * f) / rate
+        // a few harmonics with a vowel-like falloff, fading in and out
+        let v = 0
+        for (let h = 1; h <= 8; h++) v += Math.sin(phase * h) / (h * h * 0.6 + 0.4)
+        voice[i] = 0.3 * v * Math.min(1, t * 8, (2 - t) * 8)
+      }
+      const median = (f: Float32Array): number => {
+        const v = [...f].filter((x) => x > 0).sort((a, b) => a - b)
+        return v[v.length >> 1] ?? 0
+      }
+      const f0 = detectPitch(voice, rate)
+      const settings = { mode: 'key' as const, speed: 1, scale: [0, 2, 4, 5, 7, 9, 11], transpose: 0, detune: 0, formant: 0 }
+      const tuned = psola(voice, rate, f0, pitchShifts(f0, settings).shift, 0)
+      const airy = psola(voice, rate, f0, pitchShifts(f0, settings).shift, 3)
+      log('autotune: sung', median(f0).toFixed(1), 'Hz -> tuned', median(detectPitch(tuned, rate)).toFixed(1), 'Hz (A3 = 220) · with formant +3:', median(detectPitch(airy, rate)).toFixed(1), 'Hz')
+
+      // as a vocal track: saved into a project file, reopened, and mixed into a WAV export
+      const trackId = addAudioTrack('Vocals')
+      const takeId = addTake(voice, rate)
+      addRecordedPasses(trackId, [{ tick: getState().song.ppq * 4, duration: n / rate, takeId }])
+      await processAll(getState().song)
+      // the tuned melody should show as a line over A3 as it comes down
+      engine.seek(1.7)
+      await wait(700)
+      await window.keyfall.selftestCapture(`${outDir}/window-ribbon-a.png`)
+      await wait(700)
+      await window.keyfall.selftestCapture(`${outDir}/window-ribbon.png`)
+      const packed = await packProject(getState().song)
+      const back = unpackProject(packed)
+      log('project file', (packed.length / 1024).toFixed(0), 'KB · reopened vocal tracks', back.audioTracks.length, 'clips', back.audioTracks[0]?.clips.length, 'take found', !!getTake(back.audioTracks[0]?.clips[0]?.takes[0] ?? ''))
+      await exportAudio('wav', `${outDir}/selftest-vocals.wav`)
+      log('export with vocals:', getState().toast?.text)
+    }
+
+    // beat generated to follow the demo song
+    generateDrums('lofi', 42)
+    {
+      const drums = getState().song.tracks.find((t) => t.beat)!
+      log('beat:', drums.beat!.patterns.map((p) => p.name).join(', '), '· bars', drums.beat!.bars.length, '· notes', drums.notes.length)
+    }
+
+    // sections: mark verse and chorus, play the chorus twice, then move it first
+    addSection(0, 'Verse')
+    addSection(4, 'Chorus')
+    const sectionNotes0 = getState().song.tracks.reduce((a, t) => a + t.notes.length, 0)
+    duplicateSection(getState().song.sections[1].id)
+    const sectionNotes1 = getState().song.tracks.reduce((a, t) => a + t.notes.length, 0)
+    moveSection(getState().song.sections.find((s) => s.name === 'Chorus')!.id, -1)
+    log('sections:', getState().song.sections.map((s) => `${s.name}@${s.bar + 1}`).join(' '), '· notes', sectionNotes0, '->', sectionNotes1)
+
+    // the studio panel with vocals, a background photo and the pitch line on stage
+    await usePresetBackground('misty-pines.jpg')
+    getState().set({ drawerOpen: true, drawerTab: 'vocals' })
+    engine.seek(1.6)
+    await wait(1500)
+    await window.keyfall.selftestCapture(`${outDir}/window-vocals.png`)
+    await wait(900)
+    await window.keyfall.selftestCapture(`${outDir}/window-vocals2.png`)
+    getState().set({ drawerTab: 'beat' })
+    await wait(600)
+    await window.keyfall.selftestCapture(`${outDir}/window-beat.png`)
+    getState().set({ drawerTab: 'mixer' })
+    await wait(600)
+    await window.keyfall.selftestCapture(`${outDir}/window-mixer.png`)
+    getState().set({ drawerOpen: false })
 
     // recording into a brand-new, empty song must keep running (with its count-in) until stopped
     getState().loadSong(emptySong(), 'Untitled', null)

@@ -1,22 +1,19 @@
-import { engine } from '../audio/engine'
 import { GM_NAMES } from '../model/gm'
 import { DRUM_CHANNEL, PALETTE } from '../model/song'
-import { addTrack, removeTrack, setDrums, updateTrack } from '../state/edit'
+import { addTrack, choosePreset, removeTrack, setDrums, updateTrack } from '../state/edit'
 import { useStore } from '../state/store'
 import * as I from './icons'
 
-export function TrackDrawer(): React.JSX.Element {
+/** The Tracks tab: instruments, colours, mute and solo for the note tracks. */
+export function TracksPanel(): React.JSX.Element {
   const tracks = useStore((s) => s.song.tracks)
   const activeTrackId = useStore((s) => s.activeTrackId)
-  const open = useStore((s) => s.drawerOpen)
   const set = useStore((s) => s.set)
+  const presets = useStore((s) => s.sfPresets)
+  const sfName = useStore((s) => s.sfName)
 
   return (
-    <aside className={`drawer${open ? ' open' : ''}`} aria-hidden={!open}>
-      <div className="drawer-head">
-        <h2>Tracks</h2>
-        <button className="icon-btn" title="Close (T)" onClick={() => set({ drawerOpen: false })}><I.IconClose size={16} /></button>
-      </div>
+    <>
       <p className="drawer-hint">New notes go into the highlighted track. Clicking a note also selects its track.</p>
       <ul className="track-list">
         {tracks.map((t) => {
@@ -47,25 +44,51 @@ export function TrackDrawer(): React.JSX.Element {
                 <button className={`ms${t.solo ? ' on solo' : ''}`} title="Solo" onClick={() => updateTrack(t.id, { solo: !t.solo })}>S</button>
               </div>
               <div className="track-row sub">
-                <select
-                  id={`program-${t.id}`}
-                  className="select grow"
-                  value={drums ? 'drums' : String(t.program)}
-                  onChange={(e) => {
-                    if (e.target.value === 'drums') setDrums(t.id, true)
-                    else {
-                      if (drums) setDrums(t.id, false)
-                      updateTrack(t.id, { program: Number(e.target.value) })
-                      engine.previewNote(t.channel, 60, 90, 0.4)
-                    }
-                  }}
-                  aria-label="Instrument"
-                >
-                  <option value="drums">Drum kit (channel 10)</option>
-                  {GM_NAMES.map((n, i) => (
-                    <option key={i} value={i}>{`${i + 1}. ${n}`}</option>
-                  ))}
-                </select>
+                {presets.length ? (
+                  <select
+                    id={`program-${t.id}`}
+                    className="select grow"
+                    value={`${drums ? 'd' : 'p'}:${t.bank}:${t.program}`}
+                    title={`Presets in ${sfName ?? 'the soundfont'}`}
+                    onChange={(e) => {
+                      const [kind, bank, program] = e.target.value.split(':')
+                      choosePreset(t.id, kind === 'd', Number(bank), Number(program))
+                    }}
+                    aria-label="Instrument"
+                  >
+                    {!presets.some((p) => p.drum === drums && p.bank === t.bank && p.program === t.program) && (
+                      <option value={`${drums ? 'd' : 'p'}:${t.bank}:${t.program}`}>{`${GM_NAMES[t.program] ?? 'Program'} (not in this soundfont)`}</option>
+                    )}
+                    <optgroup label="Instruments">
+                      {presets.filter((p) => !p.drum).map((p) => (
+                        <option key={`p${p.bank}:${p.program}`} value={`p:${p.bank}:${p.program}`}>{`${p.name}  ·  ${p.bank}:${p.program + 1}`}</option>
+                      ))}
+                    </optgroup>
+                    {presets.some((p) => p.drum) && (
+                      <optgroup label="Drum kits">
+                        {presets.filter((p) => p.drum).map((p) => (
+                          <option key={`d${p.bank}:${p.program}`} value={`d:${p.bank}:${p.program}`}>{p.name}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                ) : (
+                  <select
+                    id={`program-${t.id}`}
+                    className="select grow"
+                    value={drums ? 'drums' : String(t.program)}
+                    onChange={(e) => {
+                      if (e.target.value === 'drums') setDrums(t.id, true)
+                      else choosePreset(t.id, false, 0, Number(e.target.value))
+                    }}
+                    aria-label="Instrument"
+                  >
+                    <option value="drums">Drum kit (channel 10)</option>
+                    {GM_NAMES.map((n, i) => (
+                      <option key={i} value={i}>{`${i + 1}. ${n}`}</option>
+                    ))}
+                  </select>
+                )}
                 <span className="meta" title="MIDI channel">ch {t.channel + 1}</span>
                 <span className="meta" title="Notes">{t.notes.length.toLocaleString()}</span>
                 <button className="icon-btn small" title="Delete track (undo with Ctrl+Z)" onClick={() => removeTrack(t.id)}><I.IconTrash size={15} /></button>
@@ -80,6 +103,6 @@ export function TrackDrawer(): React.JSX.Element {
         })}
       </ul>
       <button className="btn add-track" onClick={addTrack}><I.IconPlus size={16} /> Add track</button>
-    </aside>
+    </>
   )
 }

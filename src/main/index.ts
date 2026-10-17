@@ -1,10 +1,16 @@
 import { app, BrowserWindow, dialog, ipcMain, session, type FileFilter } from 'electron'
 import { join, basename } from 'path'
 import { rmSync } from 'fs'
-import { readFile, rename, rm, writeFile } from 'fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
 
 const FILTERS: Record<string, FileFilter[]> = {
   midi: [{ name: 'MIDI files', extensions: ['mid', 'midi'] }],
+  song: [
+    { name: 'Keyfall songs and MIDI files', extensions: ['keyfall', 'mid', 'midi'] },
+    { name: 'Keyfall song (keeps vocals, beats and sections)', extensions: ['keyfall'] },
+    { name: 'MIDI file (notes only)', extensions: ['mid', 'midi'] }
+  ],
+  keyfall: [{ name: 'Keyfall song', extensions: ['keyfall'] }],
   soundfont: [{ name: 'Soundfonts', extensions: ['sf2', 'sf3', 'sfogg', 'dls'] }],
   wav: [{ name: 'WAV audio', extensions: ['wav'] }],
   mp3: [{ name: 'MP3 audio', extensions: ['mp3'] }],
@@ -12,10 +18,12 @@ const FILTERS: Record<string, FileFilter[]> = {
   webm: [{ name: 'WebM video', extensions: ['webm'] }],
   image: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'] }]
 }
-type FilterKind = 'midi' | 'soundfont' | 'wav' | 'mp3' | 'mp4' | 'webm' | 'image'
+type FilterKind = 'midi' | 'song' | 'keyfall' | 'soundfont' | 'wav' | 'mp3' | 'mp4' | 'webm' | 'image'
 
 /** Crash-recovery copy of the open song, written by the renderer while there are unsaved changes. */
 const autosavePath = (): string => join(app.getPath('userData'), 'autosave.json')
+/** Recorded takes, kept as WAV files so autosave and recovery can find them. */
+const takePath = (id: string): string => join(app.getPath('userData'), 'takes', `${id.replace(/[^\w-]/g, '')}.wav`)
 
 // Debug helper: `--screenshot=out.png` saves a capture of the window a few seconds after load, then quits.
 const shotArg = process.argv.find((a) => a.startsWith('--screenshot='))
@@ -50,7 +58,8 @@ function createWindow(): void {
   })
   win.setMenuBarVisibility(false)
 
-  const allow = (perm: string): boolean => perm === 'midi' || perm === 'midiSysex'
+  // MIDI keyboards, and the microphone for vocal recording
+  const allow = (perm: string): boolean => perm === 'midi' || perm === 'midiSysex' || perm === 'media'
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(allow(perm)))
   session.defaultSession.setPermissionCheckHandler((_wc, perm) => allow(perm))
 
@@ -126,6 +135,17 @@ ipcMain.handle('autosave-write', async (_e, json: string) => {
 ipcMain.handle('autosave-read', async () => {
   try {
     return await readFile(autosavePath(), 'utf8')
+  } catch {
+    return null
+  }
+})
+ipcMain.handle('take-write', async (_e, id: string, data: Uint8Array) => {
+  await mkdir(join(app.getPath('userData'), 'takes'), { recursive: true })
+  await writeFile(takePath(id), data)
+})
+ipcMain.handle('take-read', async (_e, id: string) => {
+  try {
+    return new Uint8Array(await readFile(takePath(id)))
   } catch {
     return null
   }

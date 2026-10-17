@@ -5,7 +5,7 @@ export interface LoadedFile {
   name: string
   data: Uint8Array
 }
-export type FilterKind = 'midi' | 'soundfont' | 'wav' | 'mp3' | 'mp4' | 'webm' | 'image'
+export type FilterKind = 'midi' | 'song' | 'keyfall' | 'soundfont' | 'wav' | 'mp3' | 'mp4' | 'webm' | 'image'
 
 const api = {
   openFile: (kind: FilterKind): Promise<LoadedFile | null> => ipcRenderer.invoke('open-file', kind),
@@ -19,6 +19,8 @@ const api = {
   autosaveWrite: (json: string): Promise<void> => ipcRenderer.invoke('autosave-write', json),
   autosaveRead: (): Promise<string | null> => ipcRenderer.invoke('autosave-read'),
   autosaveClear: (): Promise<void> => ipcRenderer.invoke('autosave-clear'),
+  takeWrite: (id: string, data: Uint8Array): Promise<void> => ipcRenderer.invoke('take-write', id, data),
+  takeRead: (id: string): Promise<Uint8Array | null> => ipcRenderer.invoke('take-read', id),
   startupFile: (): Promise<string | null> => ipcRenderer.invoke('startup-file'),
   selftest: (): Promise<string | null> => ipcRenderer.invoke('selftest'),
   selftestDone: (): void => ipcRenderer.send('selftest-done'),

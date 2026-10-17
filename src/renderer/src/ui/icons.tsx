@@ -31,3 +31,4 @@ export const IconLoop = ({ size }: P) => svg(<><path d="M17 2l3 3-3 3" /><path d
 export const IconVelocity = ({ size }: P) => svg(<><path d="M4 20V14M9 20V8M14 20v-9M19 20V4" /></>, size)
 export const IconChevron = ({ size }: P) => svg(<path d="m6 9 6 6 6-6" />, size)
 export const IconStudio = ({ size }: P) => svg(<><circle cx="7" cy="17" r="2.5" /><circle cx="17" cy="14" r="2.5" /><path d="M9.5 17V6l10-2v10" /><path d="M9.5 10l10-2" /></>, size)
+export const IconImage = ({ size }: P) => svg(<><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 16 5-5 4 4 3-3 6 6" /><circle cx="16" cy="9" r="1.5" /></>, size)
