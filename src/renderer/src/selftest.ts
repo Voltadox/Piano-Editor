@@ -17,7 +17,7 @@ import { drawScene } from './view/draw'
 import { addSection, copyReferenceGroove, duplicateSection, generateDrums, moveSection } from './state/arrange'
 import { chordLabel, importReferenceAudio, keyLabel, setChordAt } from './actions/reference'
 import { findLyrics, listenTo, separateReference } from './actions/separate'
-import { addAudioTrack, addRecordedPasses, setNoteEdit } from './state/vocalEdit'
+import { addAudioTrack, addRecordedPasses, moveVocalWord, setNoteEdit } from './state/vocalEdit'
 import { selectAll, selectionSustained, setSustain } from './state/edit'
 import { writeMidiFile } from './model/midiio'
 import { emptySong, tempoMap, ticksPerBar } from './model/song'
@@ -253,6 +253,13 @@ export async function runSelftest(arg: string): Promise<void> {
           const png = await new Promise<Blob>((r) => cv.toBlob((b) => r(b!), 'image/png'))
           await window.keyfall.writeFile(`${outDir}/stage-pitch-edit.png`, new Uint8Array(await png.arrayBuffer()))
           getState().set({ pitchEdit: false })
+          getState().undo()
+          // timing by hand: the word moves 100 ms earlier
+          const before = tempoMap(getState().song).tickToSec(t.clips[0].tick)
+          const allNotes = clipNotes.notes.map((x) => ({ start: x.start * 0.01, end: x.end * 0.01 }))
+          const moved = moveVocalWord(trackId, clipNotes.clipId, allNotes, (note.start + note.end) * 0.005, -0.1)
+          const after = getState().song.audioTracks.find((x) => x.id === trackId)!.clips
+          log('timing edit: moved', moved.toFixed(3), 's · clips', after.length, '· starts', before.toFixed(3), '->', tempoMap(getState().song).tickToSec(after[0].tick).toFixed(3))
           getState().undo()
         }
       }

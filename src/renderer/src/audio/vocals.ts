@@ -1,5 +1,5 @@
 import type { AudioClip, AudioTrack } from '../model/audio'
-import { guideLine, scaleOf, songKey } from '../model/guide'
+import { guideLine, guidePitchAt, scaleOf, songKey } from '../model/guide'
 import { tempoMap, type Song } from '../model/song'
 import { useStore } from '../state/store'
 import { HOP_SEC, type TunedNote, type TuneSettings } from './pitch'
@@ -87,9 +87,21 @@ function buildSettings(song: Song, track: AudioTrack, clip: AudioClip, take: Tak
     edits: clip.edits?.[clip.takes[clip.active]]
   }
   if (track.tune.mode === 'guide') {
-    const startSec = tempoMap(song).tickToSec(clip.tick) - clip.offset
+    // a take cut into pieces (words moved in time) follows the guide where each piece now plays;
+    // every piece builds the same line, so they share one tuned version of the take
+    const map = tempoMap(song)
+    const takeId = clip.takes[clip.active]
+    const pieces = track.clips.filter((c) => c.takes[c.active] === takeId)
     const frames = Math.ceil(take.pcm.length / (take.rate * HOP_SEC))
-    settings.guide = guideLine(song, track.tune.voice, track.tune.centre, startSec, frames, HOP_SEC)
+    const originOf = (c: AudioClip): number => map.tickToSec(c.tick) - c.offset
+    const guide = guideLine(song, track.tune.voice, track.tune.centre, originOf(pieces[0] ?? clip), frames, HOP_SEC)
+    for (const c of pieces.slice(1)) {
+      const origin = originOf(c)
+      if (Math.abs(origin - originOf(pieces[0])) < 1e-6) continue
+      const to = Math.min(frames, Math.ceil((c.offset + c.duration) / HOP_SEC))
+      for (let i = Math.max(0, Math.floor(c.offset / HOP_SEC)); i < to; i++) guide[i] = guidePitchAt(song, origin + i * HOP_SEC, track.tune.voice, track.tune.centre) ?? NaN
+    }
+    settings.guide = guide
   }
   return settings
 }

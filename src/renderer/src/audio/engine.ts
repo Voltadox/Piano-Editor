@@ -81,7 +81,8 @@ class Engine {
   /** time-stretched copies of clip audio for the current practice speed */
   private stretched = new WeakMap<Float32Array, { rate: number; pcm: Float32Array; right?: Float32Array }>()
   private strips = new Map<number, Strip>()
-  private voices: { src: AudioBufferSourceNode; gain: GainNode }[] = []
+  /** playing clips: what each plays, so a refresh only swaps the ones whose audio changed */
+  private voices: { src: AudioBufferSourceNode; gain: GainNode; trackId: number; clip: AudioClip; pcm: Float32Array }[] = []
   /** Told the audio time at which a song time plays: at every start and every loop jump (for recording). */
   onAnchor: ((ctxTime: number, songTime: number) => void) | null = null
   /** Called on every scheduler tick with the song time (drives the harmony guide tone). */
@@ -542,26 +543,28 @@ class Engine {
     g.gain.linearRampToValueAtTime(0, when + realDur)
     src.connect(g).connect(this.strip(t).input)
     src.start(when, (c.offset + skip) / r, realDur)
-    const voice = { src, gain: g }
+    const voice = { src, gain: g, trackId: t.id, clip: c, pcm: data.pcm }
     this.voices.push(voice)
     src.onended = () => (this.voices = this.voices.filter((v) => v !== voice))
   }
 
   /** Stops every playing clip at `at`, or with `fade` lets them fade out over that long first. */
   private stopVoices(at: number, fade = 0): void {
-    for (const v of this.voices) {
-      try {
-        if (fade) {
-          v.gain.gain.cancelScheduledValues(at)
-          v.gain.gain.setValueAtTime(1, at)
-          v.gain.gain.linearRampToValueAtTime(0, at + fade)
-        }
-        v.src.stop(at + fade)
-      } catch {
-        // already stopped
-      }
-    }
+    for (const v of this.voices) this.stopVoice(v, at, fade)
     this.voices = []
+  }
+
+  private stopVoice(v: Engine['voices'][number], at: number, fade: number): void {
+    try {
+      if (fade) {
+        v.gain.gain.cancelScheduledValues(at)
+        v.gain.gain.setValueAtTime(1, at)
+        v.gain.gain.linearRampToValueAtTime(0, at + fade)
+      }
+      v.src.stop(at + fade)
+    } catch {
+      // already stopped
+    }
   }
 
   /**
@@ -574,15 +577,33 @@ class Engine {
     if (!this.playing || !ctx || !this.song || this.prev) return
     const at = ctx.currentTime + 0.03
     const pos = this.songTimeAt(at)
-    this.stopVoices(at, 0.02)
     const song = this.song
     const map = tempoMap(song)
+    const keep = new Set<Engine['voices'][number]>()
+    const before = new Set(this.voices)
     for (const t of song.audioTracks)
       for (const c of t.clips) {
         const s = map.tickToSec(c.tick)
-        if (s < pos && s + c.duration > pos) this.startClip(t, c, at, pos - s, true)
-        else if (s >= pos && s < this.schedUntil) this.startClip(t, c, this.ctxAt(s), 0)
+        const spanning = s < pos && s + c.duration > pos
+        if (!spanning && !(s >= pos && s < this.schedUntil)) continue
+        // a clip still playing exactly the audio it would start with now is left alone, so a
+        // refresh for some other take doesn't put a crossfade through it
+        const audio = clipAudio(song, t, c)
+        const pcm = audio && (this.rate === 1 ? audio.pcm : this.stretched.get(audio.pcm)?.pcm)
+        const same = this.voices.find((v) => v.trackId === t.id && v.clip === c && v.pcm === pcm)
+        if (same) {
+          keep.add(same)
+          continue
+        }
+        if (spanning) this.startClip(t, c, at, pos - s, true)
+        else this.startClip(t, c, this.ctxAt(s), 0)
       }
+    // anything else that was playing has changed or gone: fade it out under the new version
+    this.voices = this.voices.filter((v) => {
+      if (keep.has(v) || !before.has(v)) return true
+      this.stopVoice(v, at, 0.02)
+      return false
+    })
   }
 
   /** Sends every track's mixer settings straight to the synth, so changes are heard immediately. */

@@ -495,8 +495,11 @@ export interface VocalNotesLayer {
   clips: ClipNotes[]
   /** the note under the pointer, by clip and start frame */
   hover?: { clipId: number; start: number } | null
-  /** a note being dragged, and the pitch it is being dragged to */
-  drag?: { clipId: number; start: number; pitch: number } | null
+  /**
+   * a note being dragged: to a pitch, or (with `word`, in take seconds) its whole word moved by
+   * `dt` seconds
+   */
+  drag?: { clipId: number; start: number; pitch: number | null; dt: number; word: { start: number; end: number } | null } | null
 }
 
 /** "E4", "E4 +12¢": a fractional pitch as the nearest note and how far off it is. */
@@ -507,10 +510,11 @@ export function pitchLabel(m: number): string {
 }
 
 /** The bar a sung note is drawn as: where it lands across the keys and its span up the stage. */
-function vocalNoteBox(c: ClipNotes, n: ClipNotes['notes'][number], keys: KeyLayout, line: number, yOf: (sec: number) => number, pitch: number): { x: number; w: number; top: number; bottom: number } {
+function vocalNoteBox(c: ClipNotes, n: ClipNotes['notes'][number], keys: KeyLayout, line: number, yOf: (sec: number) => number, pitch: number, dt = 0): { x: number; w: number; top: number; bottom: number } {
   const w = Math.max(6, keys.whiteW * 0.78)
-  const start = Math.max(c.from, c.origin + n.start * HOP_SEC)
-  const end = Math.min(c.to, c.origin + n.end * HOP_SEC)
+  // a word being moved shows where it's going, outside its clip if need be
+  const start = dt ? c.origin + n.start * HOP_SEC + dt : Math.max(c.from, c.origin + n.start * HOP_SEC)
+  const end = dt ? c.origin + n.end * HOP_SEC + dt : Math.min(c.to, c.origin + n.end * HOP_SEC)
   return { x: pitchX(keys).xOf(pitch) - w / 2, w, top: yOf(end), bottom: Math.min(line, yOf(start)) }
 }
 
@@ -520,18 +524,22 @@ const shownPitch = (n: ClipNotes['notes'][number]): number => (Number.isNaN(n.ta
 function drawVocalNotes(ctx: CanvasRenderingContext2D, layer: VocalNotesLayer, keys: KeyLayout, line: number, lo: number, hi: number, yOf: (sec: number) => number): void {
   let label: { x: number; y: number; text: string } | null = null
   for (const c of layer.clips) {
-    if (c.to < lo || c.from > hi) continue
+    const d = layer.drag?.clipId === c.clipId ? layer.drag : null
+    if (!d?.word && (c.to < lo || c.from > hi)) continue
     for (const n of c.notes) {
-      const s = c.origin + n.start * HOP_SEC
-      const e = c.origin + n.end * HOP_SEC
-      if (e < Math.max(lo, c.from) || s > Math.min(hi, c.to)) continue
-      const dragging = layer.drag?.clipId === c.clipId && layer.drag.start === n.start
-      const hover = dragging || (layer.hover?.clipId === c.clipId && layer.hover.start === n.start)
-      const pitch = dragging ? layer.drag!.pitch : shownPitch(n)
-      const b = vocalNoteBox(c, n, keys, line, yOf, pitch)
+      // the dragged word's notes move with the pointer
+      const inWord = !!d?.word && n.start * HOP_SEC >= d.word.start - 1e-6 && n.end * HOP_SEC <= d.word.end + 1e-6
+      const dt = inWord ? d!.dt : 0
+      const s = c.origin + n.start * HOP_SEC + dt
+      const e = c.origin + n.end * HOP_SEC + dt
+      if (inWord ? e < lo || s > hi : e < Math.max(lo, c.from) || s > Math.min(hi, c.to)) continue
+      const dragging = d?.start === n.start
+      const hover = dragging || inWord || (layer.hover?.clipId === c.clipId && layer.hover.start === n.start)
+      const pitch = dragging && d!.pitch !== null ? d!.pitch : shownPitch(n)
+      const b = vocalNoteBox(c, n, keys, line, yOf, pitch, dt)
       if (b.bottom - b.top < 1) continue
       roundRect(ctx, b.x, b.top, b.w, b.bottom - b.top, Math.min(b.w / 2, 6))
-      const untuned = !dragging && Number.isNaN(n.target)
+      const untuned = !(dragging && d!.pitch !== null) && Number.isNaN(n.target)
       ctx.fillStyle = hexA(layer.color, untuned ? 0.06 : hover ? 0.42 : n.edited ? 0.3 : 0.16)
       ctx.fill()
       ctx.setLineDash(untuned ? [4, 3] : [])
@@ -539,13 +547,16 @@ function drawVocalNotes(ctx: CanvasRenderingContext2D, layer: VocalNotesLayer, k
       ctx.strokeStyle = hexA(layer.color, hover ? 1 : n.edited ? 0.85 : 0.5)
       ctx.stroke()
       ctx.setLineDash([])
-      if (dragging && !Number.isNaN(n.sung)) {
+      if (dragging && d!.pitch !== null && !Number.isNaN(n.sung)) {
         // a faint mark where it was sung, so you can see how far it has moved
         const sx = pitchX(keys).xOf(n.sung)
         ctx.fillStyle = hexA(layer.color, 0.5)
         ctx.fillRect(sx - 1, b.top, 2, b.bottom - b.top)
       }
-      if (hover) label = { x: b.x + b.w / 2, y: Math.max(16, b.top - 6), text: untuned ? `${pitchLabel(n.sung)} · as sung` : pitchLabel(pitch) }
+      if (dragging && d!.word) {
+        const ms = Math.round(d!.dt * 1000)
+        label = { x: b.x + b.w / 2, y: Math.max(16, b.top - 6), text: `${ms > 0 ? '+' : ms < 0 ? '−' : ''}${Math.abs(ms)} ms ${ms < 0 ? 'earlier' : ms > 0 ? 'later' : ''}`.trim() }
+      } else if (hover && !inWord) label = { x: b.x + b.w / 2, y: Math.max(16, b.top - 6), text: untuned ? `${pitchLabel(n.sung)} · as sung` : pitchLabel(pitch) }
     }
   }
   if (label) {
@@ -562,7 +573,7 @@ function drawVocalNotes(ctx: CanvasRenderingContext2D, layer: VocalNotesLayer, k
   }
   ctx.font = '600 12px "Segoe UI", system-ui, sans-serif'
   ctx.textBaseline = 'middle'
-  const hint = layer.clips.length ? 'Editing pitch: drag a note sideways (Alt bends it freely) · double-click puts it back · Esc to finish' : 'Editing pitch: record a take on this vocal track first · Esc to finish'
+  const hint = layer.clips.length ? 'Editing vocals: drag a note sideways to change its pitch (Alt bends it) · up or down to move its word in time · double-click puts the pitch back · Esc to finish' : 'Editing pitch: record a take on this vocal track first · Esc to finish'
   const hw = ctx.measureText(hint).width + 20
   ctx.fillStyle = 'rgba(12,14,22,0.85)'
   roundRect(ctx, 90, line - 32, hw, 24, 12)

@@ -3,7 +3,8 @@ import { engine } from '../audio/engine'
 import { HIGHEST, LOWEST, lowerBound, snapTicks, snapTo, tempoMap, trackTimes, type Note } from '../model/song'
 import { addNote, deleteNotes, mapNotes } from '../state/edit'
 import { getState, type VocalNoteRef } from '../state/store'
-import { setNoteEdit } from '../state/vocalEdit'
+import { moveVocalWord, setNoteEdit } from '../state/vocalEdit'
+import { wordAt, type Span } from '../model/vocalTiming'
 import { getTake } from '../audio/takes'
 import { pressKey, releaseKey } from '../audio/midiInput'
 import { livePitch, livePitchDelay } from '../audio/vocalRecorder'
@@ -23,7 +24,22 @@ type Drag =
   | { kind: 'draw'; noteId: number; startTick: number }
   | { kind: 'box'; box: Box; additive: Set<number> }
   | { kind: 'key'; pitch: number; ch: number }
-  | { kind: 'vnote'; ref: VocalNoteRef; clipId: number; start: number; base: number; x0: number; pitch: number }
+  | {
+      kind: 'vnote'
+      ref: VocalNoteRef
+      clipId: number
+      start: number
+      base: number
+      x0: number
+      y0: number
+      pitch: number
+      /** which way the drag goes, settled by the first few pixels: sideways is pitch, up or down is time */
+      axis: 'pitch' | 'time' | null
+      dt: number
+      /** the take's notes, and the word that moves with this one (take seconds) */
+      notes: Span[]
+      word: Span | null
+    }
 
 /** Your sung pitch for the stage, while it's shown or a vocal take is recording. */
 function livePitchFor(st: ReturnType<typeof getState>): { midi: number; target: number | null } | null {
@@ -114,7 +130,10 @@ export function FallView(): React.JSX.Element {
       color: t.color,
       clips: vocalNotes(st.song, t.id),
       hover: vHover.current,
-      drag: d?.kind === 'vnote' ? { clipId: d.clipId, start: d.start, pitch: d.pitch } : null
+      drag:
+        d?.kind === 'vnote' && d.axis
+          ? { clipId: d.clipId, start: d.start, pitch: d.axis === 'pitch' ? d.pitch : null, dt: d.axis === 'time' ? d.dt : 0, word: d.axis === 'time' ? d.word : null }
+          : null
     }
   }
 
@@ -227,7 +246,9 @@ export function FallView(): React.JSX.Element {
       if (e.button === 2) st.set({ vocalNoteMenu: { ...ref, x: e.clientX, y: e.clientY } })
       else {
         const base = Number.isNaN(v.note.target) ? Math.round(v.note.sung) : v.note.target
-        drag.current = { kind: 'vnote', ref, clipId: v.clip.clipId, start: v.note.start, base, x0: x, pitch: base }
+        const notes = v.clip.notes.map((n) => ({ start: n.start * HOP_SEC, end: n.end * HOP_SEC }))
+        const w = wordAt(notes, (ref.start + ref.end) / 2)
+        drag.current = { kind: 'vnote', ref, clipId: v.clip.clipId, start: v.note.start, base, x0: x, y0: y, pitch: base, axis: null, dt: 0, notes, word: w && { start: w.from, end: w.to } }
       }
       return
     }
@@ -371,9 +392,16 @@ export function FallView(): React.JSX.Element {
         break
       }
       case 'vnote': {
-        // snapped to whole notes; Alt bends freely
-        const moved = d.base + pitchAtX(scene().width, x) - pitchAtX(scene().width, d.x0)
-        d.pitch = e.altKey ? Math.round(moved * 100) / 100 : Math.round(moved)
+        if (!d.axis) {
+          if (Math.max(Math.abs(x - d.x0), Math.abs(y - d.y0)) < 5) break
+          d.axis = Math.abs(x - d.x0) >= Math.abs(y - d.y0) ? 'pitch' : 'time'
+          canvasRef.current!.style.cursor = d.axis === 'pitch' ? 'ew-resize' : 'ns-resize'
+        }
+        if (d.axis === 'pitch') {
+          // snapped to whole notes; Alt bends freely
+          const moved = d.base + pitchAtX(scene().width, x) - pitchAtX(scene().width, d.x0)
+          d.pitch = e.altKey ? Math.round(moved * 100) / 100 : Math.round(moved)
+        } else d.dt = (d.y0 - y) / getState().pxPerSec
         break
       }
       case 'key': {
@@ -399,9 +427,13 @@ export function FallView(): React.JSX.Element {
       return
     }
     if (d.kind === 'vnote') {
-      if (d.pitch !== d.base) {
+      if (d.axis === 'pitch' && d.pitch !== d.base) {
         setNoteEdit(d.ref, d.pitch)
         void auditionNote(d.ref)
+      } else if (d.axis === 'time' && Math.abs(d.dt) >= 0.005) {
+        const moved = moveVocalWord(d.ref.trackId, d.clipId, d.notes, (d.ref.start + d.ref.end) / 2, d.dt)
+        if (Math.abs(moved - d.dt) > 0.02)
+          getState().notify(moved ? `Moved ${Math.round(Math.abs(moved) * 1000)} ms ${moved < 0 ? 'earlier' : 'later'}: it stops just short of the next word.` : 'There\'s no room to move it that way without cutting into the next word.')
       }
       return
     }

@@ -1,6 +1,7 @@
 import { newAudioTrack, type AudioClip, type AudioTrack, type GuideVoice } from '../model/audio'
 import { newId, PALETTE, tempoMap } from '../model/song'
 import { getState, useStore, type VocalNoteRef } from './store'
+import { planWordMove, type Span } from '../model/vocalTiming'
 
 /** Audio-track edits. Each is one undo step, like note edits. */
 
@@ -75,6 +76,27 @@ export function setNoteEdit(note: VocalNoteRef, pitch: number | null | undefined
       return { ...c, edits }
     })
   )
+}
+
+/**
+ * Moves the word sung at `at` (seconds into the clip's take) earlier or later by `delta` seconds,
+ * cutting it out of its clip and trimming the silence it moves into (see planWordMove).
+ * `notes` are the take's sung notes, in take seconds. Returns how far it really moved.
+ */
+export function moveVocalWord(trackId: number, clipId: number, notes: Span[], at: number, delta: number): number {
+  let moved = 0
+  getState().apply((song) => {
+    const map = tempoMap(song)
+    const track = song.audioTracks.find((t) => t.id === trackId)
+    if (!track) return song
+    const pieces = track.clips.map((c) => ({ ...c, start: map.tickToSec(c.tick), takeId: c.takes[c.active] }))
+    const plan = planWordMove(pieces, clipId, notes, at, delta, newId)
+    if (!plan || Math.abs(plan.moved) < 0.001) return song
+    moved = plan.moved
+    const clips: AudioClip[] = plan.pieces.map(({ start, takeId: _t, ...c }) => ({ ...(c as AudioClip), tick: Math.max(0, Math.round(map.secToTick(start))) }))
+    return { ...song, audioTracks: song.audioTracks.map((t) => (t.id === trackId ? { ...t, clips: clips.sort((a, b) => a.tick - b.tick) } : t)) }
+  })
+  return moved
 }
 
 /** Hands every note of a vocal track back to autotune. */

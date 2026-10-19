@@ -382,7 +382,7 @@ export function psola(x: Float32Array, rate: number, f0: Float32Array, shift: Fl
     const f = f0[frameAt(t)]
     if (!(f > 0)) {
       polarity = 0
-      marks.push(t)
+      marks.push(Math.round(t))
       periods.push(hopS)
       t += hopS
       continue
@@ -420,15 +420,28 @@ export function psola(x: Float32Array, rate: number, f0: Float32Array, shift: Fl
     wasVoiced = voiced
     const ratio = voiced ? Math.pow(2, Math.max(-12, Math.min(12, shift[fi])) / 12) : 1
     const half = p / k
-    const from = Math.ceil(ts - half)
-    const to = Math.floor(ts + half)
+    // grains go down on whole samples: unshifted in tone, each one is then copied sample for sample
+    // rather than blended between samples, which would dull the treble
+    const at = Math.round(ts)
+    const from = Math.ceil(at - half)
+    const to = Math.floor(at + half)
     for (let o = Math.max(0, from); o <= Math.min(n - 1, to); o++) {
-      const rel = (o - ts) / half
+      const rel = (o - at) / half
       const w = 0.5 + 0.5 * Math.cos(Math.PI * rel)
-      const src = ta + (o - ts) * k
-      const s0 = Math.floor(src)
-      if (s0 < 0 || s0 + 1 >= n) continue
-      const v = x[s0] + (x[s0 + 1] - x[s0]) * (src - s0)
+      let v: number
+      if (k === 1) {
+        const s = Math.round(ta) + o - at
+        if (s < 0 || s >= n) continue
+        v = x[s]
+      } else {
+        // the tone moved: read between samples with a cubic curve, which keeps the treble
+        const src = ta + (o - at) * k
+        const s1 = Math.floor(src)
+        if (s1 < 1 || s1 + 2 >= n) continue
+        const f = src - s1
+        const [a, b, c, d] = [x[s1 - 1], x[s1], x[s1 + 1], x[s1 + 2]]
+        v = b + 0.5 * f * (c - a + f * (2 * a - 5 * b + 4 * c - d + f * (3 * (b - c) + d - a)))
+      }
       out[o] += v * w
       wsum[o] += w
     }

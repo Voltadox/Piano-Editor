@@ -163,7 +163,9 @@ export default function App(): React.JSX.Element {
     const unsub = useStore.subscribe((s, prev) => {
       if (s.song !== prev.song) engine.setSong(s.song)
       // newly tuned vocals are heard straight away, not from the next time their clip starts
-      if (s.vocalVersion !== prev.vocalVersion) engine.refreshClips()
+      // and clips moved or cut while playing are heard where they now are
+      const clipsMoved = s.song.audioTracks !== prev.song.audioTracks && s.song.audioTracks.some((t, i) => t.clips !== prev.song.audioTracks[i]?.clips)
+      if (s.vocalVersion !== prev.vocalVersion || clipsMoved) engine.refreshClips()
     })
     engine.onEnded = () => {
       if (getState().recording) stop()
