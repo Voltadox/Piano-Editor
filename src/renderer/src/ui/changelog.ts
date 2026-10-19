@@ -7,6 +7,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.4.0',
+    date: '19 October 2026',
+    notes: [
+      'Recreate a song\'s backing track as MIDI: in the Reference tab, Recreate the backing track splits the instrumental into drums, bass and everything else, and writes each as a track you can edit (drum hits, the bass line, the chords and lines on top), in time with the song.',
+      'Each part is played by the closest-sounding preset in your soundfonts. Every soundfont in the design folder, your soundfont list and GeneralUser GS is tried. Pick from the next-closest sounds under Backing track.',
+      'Listen to now has Remake: the recreated backing with the song\'s vocals.',
+      'Tracks can each play from a different soundfont: pick one per track in the Tracks tab. Exports render them all.',
+      'Optional: recreate the backing automatically whenever you open a song.'
+    ]
+  },
+  {
     version: '0.3.0',
     date: '19 October 2026',
     notes: [

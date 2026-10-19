@@ -5,6 +5,8 @@ import { startAutosave } from './actions/autosave'
 import { watchTakes } from './audio/vocals'
 import { applyBackupFont, handleDroppedFiles, newSong, openMidi, openMidiPath, restoreSoundfont, saveSong } from './actions/files'
 import { restoreBackground } from './actions/look'
+import { readFont } from './actions/remake'
+import { fontName } from './audio/fontSlots'
 import { goToStart, seekBy, stop, syncTransport, toggleLoop, toggleMetronome, toggleRecord, togglePlay, toggleStudio } from './actions/transport'
 import { snapTicks, tempoMap, ticksPerBeat } from './model/song'
 import {
@@ -159,6 +161,10 @@ export default function App(): React.JSX.Element {
   const laneOpen = useStore((s) => s.laneOpen)
 
   useEffect(() => {
+    // tracks can play from soundfonts other than the main one; they're read when a song needs them
+    engine.fontReader = readFont
+    engine.onFontMissing = (path) =>
+      getState().notify(`Couldn't load the soundfont ${fontName(path)} (${path}). Tracks using it play the main soundfont's sound instead.`, 'error')
     engine.setSong(getState().song)
     const unsub = useStore.subscribe((s, prev) => {
       if (s.song !== prev.song) engine.setSong(s.song)

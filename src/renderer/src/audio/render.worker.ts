@@ -8,6 +8,8 @@ export interface RenderRequest {
   soundfont: ArrayBuffer | null
   /** the backup soundfont that fills in missing instruments */
   backup: ArrayBuffer | null
+  /** other soundfonts tracks play from, their presets already moved to their slots */
+  fonts?: { id: string; bytes: ArrayBuffer }[]
   events: PlayEvent[]
   /** seconds of song content */
   duration: number
@@ -64,7 +66,9 @@ async function render(req: RenderRequest): Promise<{ left: Float32Array; right: 
   const synth = new SpessaSynthProcessor(sr, { eventsEnabled: false, effectsEnabled: true, maxBufferSize: BLOCK })
   if (req.soundfont) synth.soundBankManager.addSoundBank(SoundBankLoader.fromArrayBuffer(req.soundfont), 'main')
   if (req.backup) synth.soundBankManager.addSoundBank(SoundBankLoader.fromArrayBuffer(req.backup), 'backup')
-  if (req.soundfont && req.backup) synth.soundBankManager.priorityOrder = ['main', 'backup']
+  for (const f of req.fonts ?? []) synth.soundBankManager.addSoundBank(SoundBankLoader.fromArrayBuffer(f.bytes), f.id)
+  const order = [...(req.fonts ?? []).map((f) => f.id), ...(req.soundfont ? ['main'] : []), ...(req.backup ? ['backup'] : [])]
+  if (order.length > 1) synth.soundBankManager.priorityOrder = order
   await synth.processorInitialized
   synth.setSystemParameter('autoAllocateVoices', true)
 

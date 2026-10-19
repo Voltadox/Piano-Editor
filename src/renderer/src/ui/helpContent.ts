@@ -181,6 +181,10 @@ export const HELP: HelpSection[] = [
         a: 'Use the instrument menu on the track in the Tracks tab. It lists the loaded soundfont\'s own presets with their bank and program, plus its drum kits. You can also click a preset in the soundfont menu to put it on the active track.'
       },
       {
+        q: 'Can tracks use different soundfonts?',
+        a: 'Yes. The first menu on each track in the Tracks tab picks its soundfont: the main one, any in your soundfont list, any in the project\'s design folder, or GeneralUser GS (built in). The menu under it then lists that soundfont\'s presets. Every track can play from a different one, and exports render them all.\n\nKeyfall remembers where each soundfont file is. If one has moved, its tracks play the main soundfont\'s sound until you pick it again.'
+      },
+      {
         q: 'How do I rename, recolour, mute or solo a track?',
         a: 'Click the name to type a new one. Click the colour swatch or one of the palette dots to recolour it. M mutes and S solos; `M` on the keyboard mutes the active track.'
       },
@@ -268,7 +272,7 @@ export const HELP: HelpSection[] = [
       },
       {
         q: 'Can I sing over just the instrumental?',
-        a: 'Yes. After separating, Listen to switches between Full song, Instrumental (a backing track) and Vocals.'
+        a: 'Yes. After separating, Listen to switches between Song, Instrumental (a backing track) and Vocals, and Remake once you\'ve recreated the backing track.'
       },
       {
         q: 'How do I see whether I\'m singing the right note?',
@@ -281,6 +285,26 @@ export const HELP: HelpSection[] = [
       {
         q: 'How do the lyrics work?',
         a: 'Find the lyrics reads the words from the separated vocal (Whisper, about 80 MB, downloaded once) and shows them karaoke-style over the stage. Each line starts on a sung note. If a word is wrong, fix it in the list in the Reference tab. Videos can show the lyrics too.'
+      },
+      {
+        q: 'Can it recreate the backing track as MIDI?',
+        a: 'Yes. In the Reference tab, click Recreate the backing track. Keyfall splits the instrumental again into drums, bass and everything else, then turns each into notes:\n- Drums (remake): kick, snare or clap, hi-hats, toms and cymbals on the drum channel.\n- Bass (remake): one note at a time.\n- Keys (remake): the chords and lines on top.\n\nEvery sound in your soundfonts (the design folder, your soundfont list and GeneralUser GS) is tried on each part, and the one that sounds closest to the song plays it, at the song\'s level. Each part is an ordinary track you can edit.\n\nThe first time downloads the drum and bass separators (about 60 MB). A three-minute song takes about a minute. If the vocals haven\'t been separated yet, that happens first.'
+      },
+      {
+        q: 'The remake picked the wrong sound for a part.',
+        a: 'Each part\'s menu under Backing track in the Reference tab lists the closest sounds found, best first, marked close, fair or rough. Pick another there, or choose any preset from any soundfont in the Tracks tab. Close means near the song\'s sound; rough means nothing in your soundfonts was much like it.'
+      },
+      {
+        q: 'How do I hear the remake against the original?',
+        a: 'Listen to (in the Reference tab) switches between the Song, its Instrumental, its Vocals and your Remake. The remake plays with the song\'s vocals, so you can tell whether it holds up. Mute any part with its M button.'
+      },
+      {
+        q: 'The remake\'s timing is loose. How do I tidy it?',
+        a: 'Notes land where the song plays them, feel included. To straighten a part, click it in the Tracks tab to select all of its notes, pick a snap value, and press `Q`.'
+      },
+      {
+        q: 'Can it recreate the backing automatically?',
+        a: 'Tick Recreate the backing track whenever I open a song (in the Reference tab). Opening a song then separates the vocals and recreates the backing in one go.'
       },
       {
         q: 'Can it make a beat that matches the song?',

@@ -14,9 +14,34 @@ import { setShowPitch } from '../audio/vocalRecorder'
 import { recordVocals } from '../actions/transport'
 import type { GuideVoice } from '../model/audio'
 import { harmonyTracks } from '../state/vocalEdit'
+import { chooseSound, describe, remakeBacking } from '../actions/remake'
+import { loadPref, savePref } from '../state/prefs'
+import type { RemakePart, SoundChoice } from '../model/song'
 
 const NOTE = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
 const SPEEDS = [1, 0.9, 0.8, 0.75, 0.7, 0.6, 0.5]
+
+/** How near a sound came to the song's, in words. */
+const closeness = (c: SoundChoice): string => (c.distance < 0.45 ? 'close' : c.distance < 0.75 ? 'fair' : 'rough')
+
+/** Whether opening a song goes on to recreate its backing track. */
+function RemakeOnOpen(): React.JSX.Element {
+  const [on, setOn] = useState(() => loadPref('remakeOnOpen', false))
+  return (
+    <label className="check">
+      <input
+        id="ref-remake-on-open"
+        type="checkbox"
+        checked={on}
+        onChange={(e) => {
+          setOn(e.target.checked)
+          savePref('remakeOnOpen', e.target.checked)
+        }}
+      />{' '}
+      Recreate the backing track whenever I open a song
+    </label>
+  )
+}
 
 /** The Reference tab: bring in a finished song and build on what Keyfall hears in it. */
 export function ReferencePanel(): React.JSX.Element {
@@ -31,6 +56,7 @@ export function ReferencePanel(): React.JSX.Element {
   const [style, setStyle] = useState('lofi')
   const bpm = song.tempos[0]?.bpm ?? 120
   const chordCount = song.chords.filter((c) => c.root >= 0).length
+  const remade = song.tracks.filter((t) => t.remake)
 
   if (!ref || !track) {
     return (
@@ -41,6 +67,7 @@ export function ReferencePanel(): React.JSX.Element {
           appear on the left of the stage, and the beat, harmony guides and chord suggestions all follow it.
         </p>
         <button className="btn primary" onClick={() => void importReference()}>Open a song…</button>
+        <RemakeOnOpen />
         <p className="drawer-hint tight">Steady songs work best. Takes a few seconds; chords and sections are suggestions you can change.</p>
       </section>
     )
@@ -106,9 +133,10 @@ export function ReferencePanel(): React.JSX.Element {
                 value={listening(song)}
                 onChange={(v: Listen) => listenTo(v)}
                 options={[
-                  { value: 'song', label: 'Full song' },
+                  { value: 'song', label: 'Song' },
                   { value: 'instrumental', label: 'Instrumental' },
-                  { value: 'vocals', label: 'Vocals' }
+                  { value: 'vocals', label: 'Vocals' },
+                  ...(remade.length ? [{ value: 'remake' as const, label: 'Remake' }] : [])
                 ]}
               />
             </Field>
@@ -147,6 +175,63 @@ export function ReferencePanel(): React.JSX.Element {
             </div>
           </>
         )}
+      </section>
+
+      <section className="psection">
+        <div className="ptitle">Backing track</div>
+        {!remade.length ? (
+          <>
+            <p className="drawer-hint tight">
+              Recreate the song’s backing as MIDI you can edit: its drums, bass line, and the chords and lines on top, each on its own track. Every sound in your
+              soundfonts (the design folder, your soundfont list and the built-in GeneralUser GS) is tried on each part, and the closest one plays it.
+            </p>
+            <p className="drawer-hint tight">
+              The first time downloads the drum and bass separators (60 MB){ref.stems ? '' : ' after separating the vocals'}. A three-minute song takes a minute or two.
+            </p>
+            <div className="prow-buttons">
+              <button className="btn primary" onClick={() => void remakeBacking()}>Recreate the backing track</button>
+            </div>
+          </>
+        ) : (
+          <>
+            {(['drums', 'bass', 'keys'] as RemakePart[]).map((part) => {
+              const t = remade.find((x) => x.remake === part)
+              const options = ref.remake?.[part] ?? []
+              if (!t) return null
+              const current = options.findIndex((o) => o.font === t.font && o.bank === t.bank && o.program === t.program)
+              return (
+                <Field key={part} label={part === 'drums' ? 'Drums' : part === 'bass' ? 'Bass' : 'Keys'}>
+                  <select
+                    id={`remake-${part}`}
+                    className="select grow"
+                    value={current}
+                    title="The closest sounds found, best first"
+                    onChange={(e) => {
+                      const c = options[Number(e.target.value)]
+                      if (c) chooseSound(part, c)
+                    }}
+                  >
+                    {current < 0 && <option value={-1}>Your own choice</option>}
+                    {options.map((o, i) => (
+                      <option key={i} value={i}>
+                        {describe(o)} · {closeness(o)}
+                      </option>
+                    ))}
+                  </select>
+                  <button className={`ms${t.muted ? ' on mute' : ''}`} title="Mute this part" onClick={() => updateTrack(t.id, { muted: !t.muted })}>M</button>
+                </Field>
+              )
+            })}
+            <p className="drawer-hint tight">
+              Each part is a track: edit its notes on the stage, or pick another sound for it here or in the Tracks tab. To tidy a part’s timing, click it in the
+              Tracks tab to select its notes and press Q.
+            </p>
+            <div className="prow-buttons">
+              <button className="btn" title="Replaces the remade tracks, edits included" onClick={() => void remakeBacking()}>Recreate again</button>
+            </div>
+          </>
+        )}
+        <RemakeOnOpen />
       </section>
 
       {ref.stems && (

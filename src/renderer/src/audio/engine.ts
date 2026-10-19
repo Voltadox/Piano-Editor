@@ -7,11 +7,14 @@ import { toBuffer } from './takes'
 import { buildChain, type Chain } from './vocalChain'
 import { clipAudio } from './vocals'
 import { buildEvents, CC, eventIndexAt, mixerCCs, OFF, ON, PB, PC, type EventList, type PlayEvent } from './events'
+import { placeFont, placed, renumbered, slotKey, slotsOf, soundSlot } from './fontSlots'
 
 const LOOKAHEAD = 0.12 // seconds of events queued in the synth ahead of the playhead
 const START_DELAY = 0.04
 
 type Listener = () => void
+
+const fontId = (path: string): string => `font:${path}`
 
 /** Vocals get their preset's effects; references and stems pass straight through. */
 function chainFor(ctx: BaseAudioContext, t: AudioTrack, beatSec: number): Chain {
@@ -48,6 +51,13 @@ class Engine {
   soundfontBytes: ArrayBuffer | null = null
   /** GeneralUser GS, behind the user's soundfont: supplies drums and anything else it lacks. */
   backupBytes: ArrayBuffer | null = null
+  /** Reads a soundfont a track plays from (set by the app); null if it can't be found. */
+  fontReader: ((path: string) => Promise<ArrayBuffer | null>) | null = null
+  /** Told about a soundfont a track needs that couldn't be read. */
+  onFontMissing: ((path: string) => void) | null = null
+  /** other soundfonts tracks play from, as read from disk (before their presets are renumbered) */
+  private fontOriginals = new Map<string, ArrayBuffer>()
+  private fontsWanted = new Set<string>()
 
   private list: EventList = { events: [], notes: new Map(), duration: 0 }
   private song: Song | null = null
@@ -128,6 +138,7 @@ class Engine {
       await this.init()
       this.soundfontBytes = bytes.slice(0)
       await this.synth!.soundBankManager.addSoundBank(bytes, 'main')
+      await this.replaceClashes()
       this.orderBanks()
       this.programs.clear()
       if (this.song) this.applyPrograms(this.song)
@@ -146,15 +157,93 @@ class Engine {
         this.backupBytes = null
         await manager.deleteSoundBank('backup')
       }
+      await this.replaceClashes()
       this.orderBanks()
       this.programs.clear()
       if (this.song) this.applyPrograms(this.song)
     })
   }
 
-  /** The user's soundfont always wins; the backup only supplies instruments it lacks. */
+  /**
+   * The user's soundfont wins over the backup, which only supplies instruments it lacks. Other
+   * soundfonts' presets sit in slots of their own, so their order doesn't matter.
+   */
   private orderBanks(): void {
-    if (this.soundfontBytes && this.backupBytes) this.synth!.soundBankManager.priorityOrder = ['main', 'backup']
+    const order = [...[...placed.keys()].map(fontId), ...(this.soundfontBytes ? ['main'] : []), ...(this.backupBytes ? ['backup'] : [])]
+    if (order.length > 1) this.synth!.soundBankManager.priorityOrder = order
+  }
+
+  /** Slots the main soundfont and the backup use; other soundfonts are placed around them. */
+  private mainSlots(): Set<string> {
+    return new Set([...slotsOf(this.soundfontBytes), ...slotsOf(this.backupBytes)])
+  }
+
+  /** Loads the soundfonts the song's tracks play from that aren't loaded yet. */
+  private wantFonts(song: Song): void {
+    for (const t of song.tracks) {
+      if (!t.font || placed.has(t.font) || this.fontsWanted.has(t.font)) continue
+      const path = t.font
+      this.fontsWanted.add(path)
+      void (async () => {
+        const bytes = this.fontOriginals.get(path) ?? (await this.fontReader?.(path)) ?? null
+        if (!bytes) {
+          this.onFontMissing?.(path)
+          return
+        }
+        await this.addFont(path, bytes)
+      })()
+    }
+  }
+
+  /** Adds a soundfont for tracks to play from, its presets moved to free slots. */
+  addFont(path: string, bytes: ArrayBuffer): Promise<void> {
+    return this.oneAtATime(async () => {
+      await this.init()
+      if (placed.has(path)) return
+      this.fontOriginals.set(path, bytes)
+      const taken = this.mainSlots()
+      for (const f of placed.values()) for (const s of f.slots.values()) taken.add(slotKey(s.bank, s.program))
+      const p = placeFont(path, bytes, taken)
+      if (!p) {
+        this.onFontMissing?.(path)
+        return
+      }
+      placed.set(path, p)
+      await this.synth!.soundBankManager.addSoundBank(renumbered(p, bytes), fontId(path))
+      this.orderBanks()
+      this.programs.clear()
+      if (this.song) {
+        this.list = buildEvents(this.song)
+        this.applyPrograms(this.song)
+      }
+    })
+  }
+
+  /** After the main soundfont or the backup changes, moves other soundfonts off any slot it now uses. */
+  private async replaceClashes(): Promise<void> {
+    const main = this.mainSlots()
+    const clashing = [...placed.values()].filter((f) => [...f.slots.values()].some((s) => main.has(slotKey(s.bank, s.program))))
+    if (!clashing.length) return
+    const manager = this.synth!.soundBankManager
+    for (const f of clashing) {
+      placed.delete(f.path)
+      await manager.deleteSoundBank(fontId(f.path))
+    }
+    const taken = main
+    for (const f of placed.values()) for (const s of f.slots.values()) taken.add(slotKey(s.bank, s.program))
+    for (const f of clashing) {
+      const p = placeFont(f.path, this.fontOriginals.get(f.path)!, taken)
+      if (!p) continue
+      placed.set(f.path, p)
+      await manager.addSoundBank(renumbered(p, this.fontOriginals.get(f.path)!), fontId(f.path))
+    }
+    if (this.song) this.list = buildEvents(this.song)
+  }
+
+  /** The other soundfonts the song plays from, as loaded (for the export renderer). */
+  fontsFor(song: Song): { id: string; bytes: ArrayBuffer }[] {
+    const used = new Set(song.tracks.flatMap((t) => (t.font ? [t.font] : [])))
+    return [...placed.values()].filter((f) => used.has(f.path)).map((f) => ({ id: fontId(f.path), bytes: renumbered(f, this.fontOriginals.get(f.path)!) }))
   }
 
   /** Whether anything can make sound (the user's soundfont, the backup, or both). */
@@ -207,6 +296,7 @@ class Engine {
   setSong(song: Song): void {
     const prev = this.song
     this.song = song
+    if (!prev || prev.tracks !== song.tracks) this.wantFonts(song)
     this.list = buildEvents(song)
     if (this.playing) this.reconcile()
     else this.applyPrograms(song)
@@ -617,10 +707,11 @@ class Engine {
     const synth = this.synth
     if (!synth) return
     for (const t of song.tracks) {
-      const id = `${t.bank}:${t.program}`
+      const slot = soundSlot(t)
+      const id = `${slot.bank}:${slot.program}`
       if (this.programs.get(t.channel) === id) continue
-      synth.controllerChange(t.channel, 0 as MIDIController, t.bank)
-      synth.programChange(t.channel, t.program)
+      synth.controllerChange(t.channel, 0 as MIDIController, slot.bank)
+      synth.programChange(t.channel, slot.program)
       this.programs.set(t.channel, id)
     }
   }

@@ -4,6 +4,7 @@ import { addTrack, choosePreset, removeTrack, selectTrack, setDrums, updateTrack
 import { useStore } from '../state/store'
 import * as I from './icons'
 import { TrackExportButton } from './TrackExport'
+import { FontChoice, FontPresets } from './SoundPicker'
 
 /** The Tracks tab: instruments, colours, mute and solo for the note tracks. */
 export function TracksPanel(): React.JSX.Element {
@@ -49,7 +50,12 @@ export function TracksPanel(): React.JSX.Element {
                 <button className={`ms${t.solo ? ' on solo' : ''}`} title="Solo" onClick={() => updateTrack(t.id, { solo: !t.solo })}>S</button>
               </div>
               <div className="track-row sub">
-                {presets.length ? (
+                <FontChoice track={t} />
+              </div>
+              <div className="track-row sub">
+                {t.font ? (
+                  <FontPresets track={{ ...t, font: t.font }} />
+                ) : presets.length ? (
                   <select
                     id={`program-${t.id}`}
                     className="select grow"

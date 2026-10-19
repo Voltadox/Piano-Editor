@@ -3,7 +3,7 @@ import { createWriteStream } from 'fs'
 import { stat } from 'fs/promises'
 import { join, basename, dirname } from 'path'
 import { rmSync } from 'fs'
-import { mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
+import { mkdir, readdir, readFile, rename, rm, writeFile } from 'fs/promises'
 
 const FILTERS: Record<string, FileFilter[]> = {
   midi: [{ name: 'MIDI files', extensions: ['mid', 'midi'] }],
@@ -188,6 +188,16 @@ const MODELS: Record<string, { url: string; bytes: number; file: string }> = {
     url: 'https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/Kim_Vocal_2.onnx',
     bytes: 66759214,
     file: 'Kim_Vocal_2.onnx'
+  },
+  drums: {
+    url: 'https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/kuielab_a_drums.onnx',
+    bytes: 29703204,
+    file: 'kuielab_a_drums.onnx'
+  },
+  bass: {
+    url: 'https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/kuielab_a_bass.onnx',
+    bytes: 29703204,
+    file: 'kuielab_a_bass.onnx'
   }
 }
 
@@ -256,8 +266,32 @@ ipcMain.handle('separate-vocals', async (e, left: Float32Array, right: Float32Ar
   const id = nextJob++
   return new Promise((resolve, reject) => {
     jobs.set(id, { sender: e.sender, resolve, reject })
-    getSeparator().postMessage({ id, left, right, modelPath: path })
+    getSeparator().postMessage({ id, left, right, modelPath: path, layout: 'vocals' })
   })
+})
+
+/** The drums or the bass from a stereo track at 44.1 kHz (an instrumental, for recreating it). */
+ipcMain.handle('separate-stem', async (e, stem: 'drums' | 'bass', left: Float32Array, right: Float32Array) => {
+  const path = await ensureModel(stem, e.sender)
+  const id = nextJob++
+  return new Promise((resolve, reject) => {
+    jobs.set(id, { sender: e.sender, resolve, reject })
+    getSeparator().postMessage({ id, left, right, modelPath: path, layout: stem })
+  })
+})
+
+/**
+ * Soundfonts in the project's design folder, for recreating songs with. The packaged app runs
+ * from <project>/release/win-unpacked, so the folder is two levels up from it.
+ */
+ipcMain.handle('design-fonts', async () => {
+  const dir = app.isPackaged ? join(dirname(process.execPath), '..', '..', 'design') : join(app.getAppPath(), 'design')
+  try {
+    const names = await readdir(dir)
+    return names.filter((n) => /\.(sf2|sf3|sfogg|dls)$/i.test(n)).map((n) => ({ path: join(dir, n), name: n }))
+  } catch {
+    return []
+  }
 })
 
 /** Basic Pitch (Apache 2.0) ships with Keyfall; it finds every note in a recording, chords included. */

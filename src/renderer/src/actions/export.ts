@@ -65,8 +65,9 @@ function render(
     }
     const soundfont = engine.soundfontBytes?.slice(0) ?? null
     const backup = engine.backupBytes?.slice(0) ?? null
-    const full: RenderRequest = { ...req, soundfont, backup, events, duration }
-    worker.postMessage(full, [soundfont, backup].filter((b): b is ArrayBuffer => b !== null))
+    const fonts = engine.fontsFor(song)
+    const full: RenderRequest = { ...req, soundfont, backup, fonts, events, duration }
+    worker.postMessage(full, [soundfont, backup, ...fonts.map((f) => f.bytes)].filter((b): b is ArrayBuffer => b !== null))
   })
 }
 

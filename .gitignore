@@ -3,3 +3,8 @@ out/
 release/
 *.log
 .DS_Store
+# soundfonts kept in the design folder for recreating songs (large, and not ours to publish)
+design/*.sf2
+design/*.sf3
+design/*.sfogg
+design/*.dls

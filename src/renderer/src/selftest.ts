@@ -17,21 +17,23 @@ import { drawScene } from './view/draw'
 import { buildChain } from './audio/vocalChain'
 import { addSection, copyReferenceGroove, duplicateSection, generateDrums, moveSection } from './state/arrange'
 import { chordLabel, importReferenceAudio, keyLabel, setChordAt } from './actions/reference'
-import { findLyrics, listenTo, separateReference } from './actions/separate'
+import { findLyrics, listening, listenTo, separateReference } from './actions/separate'
+import { readFont, remakeBacking } from './actions/remake'
+import { placed, soundSlot } from './audio/fontSlots'
 import { addAudioTrack, addRecordedPasses, moveVocalWord, setNoteEdit, updateAudioTrack } from './state/vocalEdit'
-import { selectAll, selectionSustained, setSustain } from './state/edit'
+import { choosePreset, selectAll, selectionSustained, setSustain } from './state/edit'
 import { writeMidiFile } from './model/midiio'
 import { emptySong, newId, newTrack, tempoMap, ticksPerBar } from './model/song'
-import { getState } from './state/store'
+import { getState, useStore } from './state/store'
 
 const log = (...a: unknown[]): void => console.log('[selftest]', ...a)
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 /** Developer check run with `--selftest=<soundfont>|<outDir>`; never runs in normal use. */
 export async function runSelftest(arg: string): Promise<void> {
-  const [sfPath, outDir, realSong] = arg.split('|')
+  const [sfPath, outDir, realSong, mode] = arg.split('|')
   if (realSong) {
-    await realSongCheck(sfPath, outDir, realSong)
+    await realSongCheck(sfPath, outDir, realSong, mode === 'remake')
     window.keyfall.selftestDone()
     return
   }
@@ -348,6 +350,35 @@ export async function runSelftest(arg: string): Promise<void> {
         const w = decodeWavMono(f.data)
         log(`stem ${t.name}: ${(w.pcm.length / w.rate).toFixed(1)} s · level ${(20 * Math.log10(rms(w.pcm) || 1e-9)).toFixed(1)} dBFS`)
       }
+
+      // a track playing from another soundfont (one in the design folder), and a kit from another
+      // soundfont on the drum channel
+      const design = await window.keyfall.designFonts()
+      const steel = design.find((f) => /steel tongue/i.test(f.name))
+      const mega = design.find((f) => /megadrive/i.test(f.name))
+      if (steel && mega) {
+        const lh = getState().song.tracks.find((t) => t.name === 'Right hand')!
+        choosePreset(lh.id, false, 0, 0, steel.path)
+        const megaBytes = await readFont(mega.path)
+        await engine.addFont(mega.path, megaBytes!)
+        for (let i = 0; i < 50 && !placed.has(steel.path); i++) await wait(100)
+        const kit = placed.get(mega.path)!.slots.get('128:0')
+        await exportAllTracks('wav', outDir)
+        const f = await window.keyfall.readFile(`${outDir}/${clean(getState().fileName)} - Right hand.wav`)
+        const level = f ? 20 * Math.log10(rms(decodeWavMono(f.data).pcm) || 1e-9) : NaN
+        const core = new SpessaSynthProcessor(48000, { eventsEnabled: false, effectsEnabled: false })
+        for (const x of engine.fontsFor({ ...getState().song, tracks: [{ ...lh, font: mega.path }] })) core.soundBankManager.addSoundBank(SoundBankLoader.fromArrayBuffer(x.bytes), x.id)
+        await core.processorInitialized
+        core.programChange(9, kit?.program ?? 0)
+        core.noteOn(9, 36, 120)
+        const l = new Float32Array(24000)
+        const r = new Float32Array(24000)
+        for (let pos = 0; pos < 24000; pos += 128) core.process(l, r, pos, 128)
+        let peak = 0
+        for (const v of l) peak = Math.max(peak, Math.abs(v))
+        log('other soundfonts: Right hand plays', steel.name, 'from slot', JSON.stringify(soundSlot(getState().song.tracks.find((t) => t.id === lh.id)!)), '· its stem', level.toFixed(1), 'dBFS · Megadrive kit placed at', JSON.stringify(kit), '· drum channel plays', core.midiChannels[9].preset?.name, '· kick peak', peak.toFixed(3))
+        choosePreset(lh.id, false, 0, 0)
+      }
     }
 
     // beat generated to follow the demo song
@@ -559,9 +590,10 @@ async function grabFrame(videoPath: string, pngPath: string, at: number): Promis
 
 /**
  * With a third argument, runs reference mode on a real song file instead of the usual checks:
- * analysis, vocal separation and the sung notes, with a screenshot of the result.
+ * analysis, vocal separation and the sung notes, with a screenshot of the result. With a fourth,
+ * `remake`, recreates the backing track instead of reading the lyrics, and saves it as MP3s.
  */
-async function realSongCheck(sfPath: string, outDir: string, path: string): Promise<void> {
+async function realSongCheck(sfPath: string, outDir: string, path: string, remake = false): Promise<void> {
   try {
     const sf = await window.keyfall.readFile(sfPath)
     if (sf) await loadSoundfontBytes(sf.data.buffer.slice(sf.data.byteOffset, sf.data.byteOffset + sf.data.byteLength) as ArrayBuffer, sf.name, null)
@@ -595,6 +627,50 @@ async function realSongCheck(sfPath: string, outDir: string, path: string): Prom
     const pitches = (melody?.notes ?? []).map((n) => n.pitch)
     log('real song: separated in', ((performance.now() - t1) / 1000).toFixed(1), 's · vocals rms', rms(vocalsTake), '· instrumental rms', rms(instTake), '· sung notes', pitches.length, pitches.length ? `(range ${Math.min(...pitches)}-${Math.max(...pitches)}, first: ${pitches.slice(0, 12).join(' ')})` : '')
     log('real song: harmony lines', after.tracks.filter((t) => t.role?.startsWith('harmony')).map((t) => `${t.name}: ${t.notes.length} notes ${t.notes.slice(0, 6).map((n) => n.pitch).join(' ')}`).join(' · ') || 'none', '·', getState().toast?.text)
+    if (remake) {
+      const t3 = performance.now()
+      // how long each step takes, from the progress labels
+      const steps: string[] = []
+      let label = ''
+      let since = t3
+      const unsub = useStore.subscribe((st) => {
+        const l = st.busy?.label.replace(/\(.*\)/, '').trim() ?? ''
+        if (l === label) return
+        if (label) steps.push(`${label} ${((performance.now() - since) / 1000).toFixed(1)}s`)
+        label = l
+        since = performance.now()
+      })
+      await remakeBacking()
+      unsub()
+      log('remake: steps', steps.join(' · '))
+      const s = getState().song
+      log('remake: done in', ((performance.now() - t3) / 1000).toFixed(1), 's ·', getState().toast?.text)
+      for (const t of s.tracks.filter((x) => x.remake))
+        log(`remake: ${t.remake} · ${t.notes.length} notes · ch ${t.channel + 1} · volume ${t.volume.toFixed(2)} · options:`, (s.reference?.remake?.[t.remake!] ?? []).map((c) => `${c.name} [${c.font.split(/[\/]/).pop()}] ${c.distance.toFixed(3)}`).join(' | '))
+      log('remake: listening to', listening(s), '· audible audio', s.audioTracks.filter((x) => !x.muted).map((x) => x.name).join(', '))
+      await wait(1500)
+      log('remake: placed soundfonts', [...placed.keys()].map((p) => p.split(/[\/]/).pop()).join(', '), '· programs', s.tracks.filter((x) => x.remake).map((x) => `${x.remake} ${JSON.stringify(soundSlot(x))}`).join(' '))
+      if (outDir) {
+        await exportAudio('mp3', `${outDir}/remake-with-vocals.mp3`)
+        log('remake: export', getState().toast?.text)
+        const voc = s.reference?.stems?.vocals
+        if (voc) updateAudioTrack(voc, { muted: true })
+        await exportAudio('mp3', `${outDir}/remake-only.mp3`)
+        log('remake: export', getState().toast?.text)
+        // for checking the timing: the remake and the song's instrumental, each on its own
+        await exportAudio('wav', `${outDir}/remake-only.wav`)
+        listenTo('instrumental')
+        await exportAudio('wav', `${outDir}/instrumental.wav`)
+        log('remake: export', getState().toast?.text)
+        getState().set({ drawerOpen: true, drawerTab: 'reference' })
+        await wait(900)
+        await window.keyfall.selftestCapture(`${outDir}/remake.png`)
+        getState().set({ drawerTab: 'tracks' })
+        await wait(900)
+        await window.keyfall.selftestCapture(`${outDir}/remake-tracks.png`)
+      }
+      return
+    }
     const t2 = performance.now()
     await findLyrics()
     const lyr = getState().song.lyrics

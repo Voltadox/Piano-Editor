@@ -1,4 +1,5 @@
 import { isAudible, tempoMap, trackTimes, type Song, type Track } from '../model/song'
+import { soundSlot } from './fontSlots'
 
 /** A track's mixer settings as MIDI controllers: volume (7), pan (10) and reverb send (91). */
 export function mixerCCs(t: Track): [number, number][] {
@@ -50,8 +51,9 @@ export function buildEvents(song: Song): EventList {
     const audible = isAudible(t, song)
     const ch = t.channel
     const times = trackTimes(t, map)
-    // program change carries the bank in `b`
-    events.push({ time: 0, kind: PC, ch, a: t.program, b: t.bank, id: -1 })
+    // program change carries the bank in `b` (a preset from another soundfont plays from its slot)
+    const slot = soundSlot(t)
+    events.push({ time: 0, kind: PC, ch, a: slot.program, b: slot.bank, id: -1 })
     for (const [num, val] of mixerCCs(t)) events.push({ time: 0, kind: CC, ch, a: num, b: val, id: -1 })
     // the mixer owns each track's volume and pan
     for (const c of t.ccs)

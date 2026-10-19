@@ -70,12 +70,15 @@ export function setSongKey(key: SongKey | null): void {
   getState().apply((song) => ({ ...song, key }))
 }
 
-/** Gives a track a soundfont preset (moving it on or off the drum channel as needed) and plays a sample note. */
-export function choosePreset(id: number, drum: boolean, bank: number, program: number): void {
+/**
+ * Gives a track a soundfont preset (moving it on or off the drum channel as needed) and plays a
+ * sample note. With `font`, the preset is from that soundfont rather than the main one.
+ */
+export function choosePreset(id: number, drum: boolean, bank: number, program: number, font?: string): void {
   const t = getState().song.tracks.find((x) => x.id === id)
   if (!t) return
   if (drum !== (t.channel === DRUM_CHANNEL)) setDrums(id, drum)
-  updateTrack(id, { bank, program })
+  updateTrack(id, { bank, program, font })
   const ch = getState().song.tracks.find((x) => x.id === id)?.channel ?? 0
   void import('../audio/engine').then(({ engine }) => engine.previewNote(ch, drum ? 38 : 60, 90, 0.5))
 }

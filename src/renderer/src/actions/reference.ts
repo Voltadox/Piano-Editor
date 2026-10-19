@@ -6,6 +6,8 @@ import { newAudioTrack } from '../model/audio'
 import type { Analysis } from '../model/analysis'
 import { newId, newTrack, PALETTE, sortNotes, TempoMap, ticksPerBar, ticksPerBeat, type ChordMark, type Note, type Song, type Tempo, type Track } from '../model/song'
 import { getState, useStore } from '../state/store'
+import { loadPref } from '../state/prefs'
+import { remakeBacking } from './remake'
 
 /**
  * Reference mode: bring in a finished song, listen to it, and lay the song out to match it: the
@@ -79,6 +81,7 @@ export async function importReferenceAudio(name: string, buf: AudioBuffer): Prom
     getState().notify(
       `${name}: ${Math.round(analysis.bpm)} BPM, ${song.key ? keyLabel(song.key.tonic, song.key.minor) : 'key unclear'}, ${song.chords.filter((c) => c.root >= 0).length} chord changes, ${song.sections.length} sections`
     )
+    if (loadPref('remakeOnOpen', false)) void remakeBacking()
   } catch (err) {
     getState().set({ busy: null })
     getState().notify(`Couldn't analyse ${name}. ${err instanceof Error ? err.message : ''}`, 'error')

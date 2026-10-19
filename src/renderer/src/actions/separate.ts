@@ -8,10 +8,11 @@ import type { SungNote } from '../model/melody'
 import { newId, newTrack, sortNotes, tempoMap, type Song, type Track } from '../model/song'
 import { getState } from '../state/store'
 import { referenceTrack } from './reference'
+import { hearRemake } from './remake'
 
 const SEPARATION_RATE = 44100
 
-async function resample(channels: Float32Array[], from: number, to: number): Promise<Float32Array[]> {
+export async function resample(channels: Float32Array[], from: number, to: number): Promise<Float32Array[]> {
   if (from === to) return channels.map((c) => c.slice())
   const len = channels[0].length
   const buf = new AudioBuffer({ length: len, numberOfChannels: channels.length, sampleRate: from })
@@ -202,7 +203,7 @@ export function setLyric(index: number, text: string): void {
   getState().apply((s) => ({ ...s, lyrics: s.lyrics.map((l, i) => (i === index ? { ...l, text } : l)) }))
 }
 
-export type Listen = 'song' | 'instrumental' | 'vocals'
+export type Listen = 'song' | 'instrumental' | 'vocals' | 'remake'
 
 export function listening(song: Song): Listen {
   const ref = referenceTrack(song)
@@ -210,19 +211,25 @@ export function listening(song: Song): Listen {
   if (!ref || !stems) return 'song'
   const inst = song.audioTracks.find((t) => t.id === stems.instrumental)
   const voc = song.audioTracks.find((t) => t.id === stems.vocals)
+  if (song.tracks.some((t) => t.remake && !t.muted)) return 'remake'
   if (inst && !inst.muted) return 'instrumental'
   if (voc && !voc.muted) return 'vocals'
   return 'song'
 }
 
-/** Plays the full song, only its instrumental (a backing track to sing over), or only its vocals. */
+/**
+ * Plays the full song, only its instrumental (a backing track to sing over), only its vocals, or
+ * the recreated backing track with the song's vocals.
+ */
 export function listenTo(which: Listen): void {
   getState().apply((song) => {
     const ref = referenceTrack(song)
     const stems = song.reference?.stems
     if (!ref || !stems) return song
+    if (which === 'remake') return hearRemake(song, true)
     return {
       ...song,
+      tracks: song.tracks.some((t) => t.remake) ? song.tracks.map((t) => (t.remake ? { ...t, muted: true } : t)) : song.tracks,
       audioTracks: song.audioTracks.map((t) =>
         t.id === ref.id ? { ...t, muted: which !== 'song' } : t.id === stems.instrumental ? { ...t, muted: which !== 'instrumental' } : t.id === stems.vocals ? { ...t, muted: which !== 'vocals' } : t
       )

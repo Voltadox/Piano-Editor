@@ -26,8 +26,10 @@ export interface Track {
   name: string
   channel: number
   program: number
-  /** soundfont bank (MIDI bank select MSB) */
+  /** soundfont bank (MIDI bank select MSB; with `font`, as that soundfont numbers it) */
   bank: number
+  /** plays a preset from this soundfont (a file path) instead of the main one */
+  font?: string
   color: string
   muted: boolean
   solo: boolean
@@ -45,7 +47,11 @@ export interface Track {
   role?: 'chords' | 'melody' | 'harmony-above' | 'harmony-below'
   /** shown on the stage but not played (reference notes to sing) */
   silent?: boolean
+  /** a part of the reference's backing track, recreated as MIDI */
+  remake?: RemakePart
 }
+
+export type RemakePart = 'drums' | 'bass' | 'keys'
 
 export interface Tempo {
   tick: number
@@ -104,6 +110,20 @@ export interface ReferenceInfo {
   barEnergy: number[]
   /** audio tracks holding the song split into vocals and instrumental, once separated */
   stems?: { vocals: number; instrumental: number }
+  /** for each recreated part, the closest-sounding presets found, best first */
+  remake?: Partial<Record<RemakePart, SoundChoice[]>>
+}
+
+/** A preset that could play a recreated part, and how close it came to the song (lower is closer). */
+export interface SoundChoice {
+  /** soundfont path */
+  font: string
+  bank: number
+  program: number
+  name: string
+  distance: number
+  /** track volume that matches the song's level */
+  volume: number
 }
 
 export const PALETTE = [

@@ -1,9 +1,10 @@
-import { separateVocals } from './separate'
+import { LAYOUTS, separateStem } from './separate'
 import { transcribe } from './transcribe'
 
 /**
- * Runs vocal separation in its own utility process, so the model's heavy work never stalls the
- * app's main process. Receives a stereo song, reports progress, and sends back the vocals.
+ * Runs separation (vocals, drums or bass) in its own utility process, so the model's heavy work
+ * never stalls the app's main process. Receives a stereo song, reports progress, and sends back
+ * the stem.
  */
 
 interface Job {
@@ -12,6 +13,8 @@ interface Job {
   left: Float32Array
   right: Float32Array
   modelPath: string
+  /** which model's spectrogram layout to use for a separation */
+  layout?: keyof typeof LAYOUTS
 }
 
 type Asr = (audio: Float32Array, opts: object) => Promise<{ chunks?: { timestamp: [number, number | null]; text: string }[] }>
@@ -64,7 +67,7 @@ process.parentPort.on('message', (e: Electron.MessageEvent) => {
       .catch((err: unknown) => process.parentPort.postMessage({ id: job.id, type: 'error', message: err instanceof Error ? err.message : String(err) }))
     return
   }
-  separateVocals(job.left, job.right, job.modelPath, (value) => process.parentPort.postMessage({ id: job.id, type: 'progress', value }))
+  separateStem(job.left, job.right, job.modelPath, LAYOUTS[job.layout ?? 'vocals'], (value) => process.parentPort.postMessage({ id: job.id, type: 'progress', value }))
     .then((out) => process.parentPort.postMessage({ id: job.id, type: 'done', left: out.left, right: out.right }))
     .catch((err: unknown) => process.parentPort.postMessage({ id: job.id, type: 'error', message: err instanceof Error ? err.message : String(err) }))
 })
