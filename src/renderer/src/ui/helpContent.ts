@@ -248,7 +248,7 @@ export const HELP: HelpSection[] = [
       },
       {
         q: 'How do I fix a wrong chord?',
-        a: 'Click a chord name on the left of the stage to change it. Add a change at the playhead adds a new one. Everything that follows chords (Follow chords autotune, harmony guides, Studio suggestions) uses this chord lane.'
+        a: 'Click a chord name on the left of the stage to change it. Add a change at the playhead adds a new one. Everything that follows chords (Chords autotune, harmony guides, Studio suggestions) uses this chord lane.'
       },
       {
         q: 'How do I separate the vocals?',
@@ -316,7 +316,7 @@ export const HELP: HelpSection[] = [
     entries: [
       {
         q: 'How does autotune decide which note to land on?',
-        a: 'It first finds each note you sing: where your voice holds roughly one pitch, and where it clearly moves to the next. Then it picks one target for each whole note, so it doesn\'t wander halfway through one.\n\n- To the key: the nearest note in the song\'s key (detected from the notes, or the key you set).\n- Follow chords: the guide line\'s note that overlaps most of what you sang. The guide is the line chosen under Sing the: the song\'s Melody or harmony lines from a reference, or the root, third, fifth or octave of the chord lane.\n\nIt keeps the octave you sing in, so singing a song an octave lower than the original works.'
+        a: 'It first finds each note you sing: where your voice holds roughly one pitch, and where it clearly moves to the next. Then it picks one target for each whole note, so it doesn\'t wander halfway through one.\n\n- Key: the nearest note in the song\'s key (detected from the notes, or the key you set).\n- Chords: the note of the chord playing under it that you chose under Sing the: root, third, fifth or octave.\n- Song: the note the reference song\'s singer sang there, from its separated vocals (the Melody (to sing) track). If the song has harmonies, Follow picks the melody or a harmony line instead.\n\nWith Chords and Song it\'s the guide note that overlaps most of what you sang. It keeps the octave you sing in, so singing a song an octave lower than the original works.'
       },
       {
         q: 'What does the Retune slider do?',
@@ -324,11 +324,11 @@ export const HELP: HelpSection[] = [
       },
       {
         q: 'Which mode should I use?',
-        a: 'With a separated reference song, use Follow chords → Melody. It aims at exactly what the original singer sang. Without one, To the key is the safe choice. Follow chords with root, third or fifth is best for harmony parts.'
+        a: 'With a separated reference song, use Song: it aims at what the original singer sang, and new vocal tracks start on it once the song\'s vocals are separated. Without a reference, Key is the safe choice. Chords with the root, third or fifth is best for harmony parts.'
       },
       {
         q: 'Autotune picks the wrong note sometimes.',
-        a: '- Check the key (To the key) or the chord lane (Follow chords). Most wrong notes come from a wrong key or chord.\n- With Follow chords → Melody, check the Melody (to sing) notes line up with the song; you can edit them like any notes.\n- Fix individual notes by hand: see Editing vocal pitch by hand below.'
+        a: '- Check the key (Key mode) or the chord lane (Chords mode). Most wrong notes come from a wrong key or chord.\n- In Song mode, check the Melody (to sing) notes match the song: a wrong note there is a wrong target. You can edit them like any notes.\n- Fix individual notes by hand: see Editing vocal pitch by hand below.'
       },
       {
         q: 'What does "tuning…" mean next to Vocal tracks?',

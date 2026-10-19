@@ -17,10 +17,10 @@ import { drawScene } from './view/draw'
 import { addSection, copyReferenceGroove, duplicateSection, generateDrums, moveSection } from './state/arrange'
 import { chordLabel, importReferenceAudio, keyLabel, setChordAt } from './actions/reference'
 import { findLyrics, listenTo, separateReference } from './actions/separate'
-import { addAudioTrack, addRecordedPasses, moveVocalWord, setNoteEdit } from './state/vocalEdit'
+import { addAudioTrack, addRecordedPasses, moveVocalWord, setNoteEdit, updateAudioTrack } from './state/vocalEdit'
 import { selectAll, selectionSustained, setSustain } from './state/edit'
 import { writeMidiFile } from './model/midiio'
-import { emptySong, tempoMap, ticksPerBar } from './model/song'
+import { emptySong, newId, newTrack, tempoMap, ticksPerBar } from './model/song'
 import { getState } from './state/store'
 
 const log = (...a: unknown[]): void => console.log('[selftest]', ...a)
@@ -261,6 +261,20 @@ export async function runSelftest(arg: string): Promise<void> {
           const after = getState().song.audioTracks.find((x) => x.id === trackId)!.clips
           log('timing edit: moved', moved.toFixed(3), 's · clips', after.length, '· starts', before.toFixed(3), '->', tempoMap(getState().song).tickToSec(after[0].tick).toFixed(3))
           getState().undo()
+          // following the song: a Melody (to sing) line on B3 under the take, and the take follows it
+          {
+            const s0 = getState().song
+            const clip0 = s0.audioTracks.find((x) => x.id === trackId)!.clips[0]
+            getState().apply((s) => ({ ...s, tracks: [...s.tracks, { ...newTrack(s, 'Melody (to sing)'), role: 'melody', silent: true, notes: [{ id: newId(), pitch: 59, tick: clip0.tick, dur: s.ppq * 8, vel: 90 }] }] }))
+            const t1 = getState().song.audioTracks.find((x) => x.id === trackId)!
+            updateAudioTrack(trackId, { tune: { ...t1.tune, mode: 'reference', voice: 'melody' } })
+            await processAll(getState().song)
+            const t2 = getState().song.audioTracks.find((x) => x.id === trackId)!
+            const a2 = clipAudio(getState().song, t2, t2.clips[0])!
+            log('follow the song: sung', a2.notes?.[0]?.sung.toFixed(2), '-> target', a2.notes?.[0]?.target, '(melody line B3 = 59) · sounds at', median(detectPitch(a2.pcm, rate)).toFixed(1), 'Hz')
+            getState().undo()
+            getState().undo()
+          }
         }
       }
       const packed = await packProject(getState().song)

@@ -196,6 +196,8 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg3); paddin
 .clip { flex-wrap: wrap; }
 .nudge { display: inline-flex; gap: 2px; }
 .nudge .icon-btn.small { width: auto; padding: 0 5px; font-size: 11px; white-space: nowrap; }
+.seg button:disabled { opacity: 0.4; cursor: default; }
+.mode-hint { padding: 0 0 4px 82px; }
 .pitch-edit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
 .pitch-edit-row .btn.on { border-color: var(--accent); background: var(--accent-soft); }
 .harmony-now { padding: 8px 10px; border-radius: 8px; background: rgba(255, 90, 95, 0.12); }

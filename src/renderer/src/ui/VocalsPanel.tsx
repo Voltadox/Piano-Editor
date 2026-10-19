@@ -3,7 +3,7 @@ import { engine } from '../audio/engine'
 import { listMics, micLevel, openMic, setShowPitch } from '../audio/vocalRecorder'
 import { tuningCount } from '../audio/vocals'
 import { recordVocals } from '../actions/transport'
-import { VOCAL_PRESETS, type AudioTrack, type GuideVoice } from '../model/audio'
+import { isSongLine, tuneMode, VOCAL_PRESETS, type AudioTrack, type GuideVoice } from '../model/audio'
 import { songKey } from '../model/guide'
 import { keyName } from '../model/harmony'
 import { tempoMap, ticksPerBar, ticksPerBeat, type Song } from '../model/song'
@@ -124,6 +124,14 @@ function TrackEditor({ t }: { t: AudioTrack }): React.JSX.Element {
   const set = (patch: Partial<AudioTrack>): void => updateAudioTrack(t.id, patch)
   const tune = (patch: Partial<AudioTrack['tune']>): void => set({ tune: { ...t.tune, ...patch } })
   const recThis = recording?.kind === 'take' && recording.trackIds[0] === t.id
+  const mode = tuneMode(t.tune)
+  const songLines = availableVoices(song).filter(isSongLine)
+  const chordVoices = availableVoices(song).filter((v) => !isSongLine(v))
+  const setMode = (m: AudioTrack['tune']['mode']): void => {
+    if (m === 'reference') tune({ mode: m, voice: isSongLine(t.tune.voice) ? t.tune.voice : 'melody' })
+    else if (m === 'guide') tune({ mode: m, voice: isSongLine(t.tune.voice) ? 'root' : t.tune.voice })
+    else tune({ mode: m })
+  }
   const pitchEdit = useStore((s) => s.pitchEdit)
   const handEdits = t.clips.some((c) => c.edits && Object.keys(c.edits).length)
 
@@ -145,7 +153,7 @@ function TrackEditor({ t }: { t: AudioTrack }): React.JSX.Element {
             void recordVocals({
               kind: 'take',
               trackIds: [t.id],
-              guide: t.tune.mode === 'guide' && guideTone ? { voice: t.tune.voice, centre: t.tune.centre } : undefined
+              guide: (mode === 'guide' || mode === 'reference') && guideTone ? { voice: t.tune.voice, centre: t.tune.centre } : undefined
             })
           }
         >
@@ -161,16 +169,28 @@ function TrackEditor({ t }: { t: AudioTrack }): React.JSX.Element {
         <Field label="Mode">
           <Choice
             label="Autotune mode"
-            value={t.tune.mode}
-            onChange={(mode) => tune({ mode })}
+            value={mode}
+            onChange={setMode}
             options={[
               { value: 'off', label: 'Off' },
-              { value: 'key', label: 'To the key', title: 'Snaps to the nearest note in the song’s key' },
-              { value: 'guide', label: 'Follow chords', title: 'Aims at one note of whichever chord the piano is playing' }
+              { value: 'key', label: 'Key', title: 'Snaps each note to the nearest note in the song’s key' },
+              { value: 'guide', label: 'Chords', title: 'Aims each note at one note of the chord playing (root, third, fifth or octave)' },
+              {
+                value: 'reference',
+                label: 'Song',
+                title: songLines.length ? 'Aims each note at what the singer of the reference song sang' : 'Open a song in the Reference tab and separate its vocals first',
+                disabled: !songLines.length
+              }
             ]}
           />
         </Field>
-        {t.tune.mode === 'key' && (
+        <p className="drawer-hint tight mode-hint">
+          {mode === 'off' && 'Your voice as you sang it (hand edits still apply).'}
+          {mode === 'key' && 'Each note you sing goes to the nearest note of the song’s key.'}
+          {mode === 'guide' && 'Each note you sing goes to a note of the chord playing under it.'}
+          {mode === 'reference' && 'Each note you sing goes to the note the song’s singer sang there, from the separated vocals (fix any wrong ones in the Melody (to sing) track).'}
+        </p>
+        {mode === 'key' && (
           <Field label="Key">
             <select
               id="song-key"
@@ -189,22 +209,36 @@ function TrackEditor({ t }: { t: AudioTrack }): React.JSX.Element {
             </select>
           </Field>
         )}
-        {t.tune.mode === 'guide' && (
+        {mode === 'reference' && songLines.length > 1 && (
+          <Field label="Follow">
+            <Choice
+              label="Song line"
+              value={t.tune.voice}
+              onChange={(voice: GuideVoice) => tune({ voice })}
+              options={songLines.map((v) => ({ value: v, label: v === 'melody' ? 'Melody' : v === 'above' ? 'Harmony above' : 'Harmony below' }))}
+            />
+          </Field>
+        )}
+        {mode === 'guide' && (
           <>
             <Field label="Sing the">
               <Choice
                 label="Chord note"
                 value={t.tune.voice}
                 onChange={(voice: GuideVoice) => tune({ voice })}
-                options={availableVoices(song).map((v) => ({
-                  value: v as GuideVoice,
-                  label: voiceName(v as GuideVoice)
+                options={chordVoices.map((v) => ({
+                  value: v,
+                  label: voiceName(v)
                 }))}
               />
             </Field>
             <Field label="Register">
               <Choice label="Register" value={t.tune.centre} onChange={(centre) => tune({ centre })} options={REGISTERS} />
             </Field>
+          </>
+        )}
+        {(mode === 'guide' || mode === 'reference') && (
+          <>
             <Field label="Guide tone">
               <label className="check">
                 <input id={`guide-${t.id}`} type="checkbox" checked={guideTone} onChange={(e) => setGuideTone(e.target.checked)} /> Play the note while recording (headphones)
@@ -212,7 +246,7 @@ function TrackEditor({ t }: { t: AudioTrack }): React.JSX.Element {
             </Field>
           </>
         )}
-        {t.tune.mode !== 'off' && (
+        {mode !== 'off' && (
           <Field label="Retune">
             <span className="meta">Natural</span>
             <Slider id={`speed-${t.id}`} value={t.tune.speed} min={0} max={1} title="Natural centres each note and keeps your vibrato and slides; Hard snaps straight to the note and holds it flat" onChange={(speed) => tune({ speed })} />

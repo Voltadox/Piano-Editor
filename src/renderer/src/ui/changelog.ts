@@ -7,6 +7,14 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.2.3',
+    date: '19 October 2026',
+    notes: [
+      'New autotune mode, Song: each note you sing goes to the note the reference song’s singer sang there (from its separated vocals). Songs with harmonies can follow a harmony line instead. The modes are now Off · Key · Chords · Song, with a line under them saying what the chosen one does.',
+      'New vocal tracks start on Song once the song’s vocals are separated.'
+    ]
+  },
+  {
     version: '0.2.2',
     date: '19 October 2026',
     notes: ['Fixed: the export button on a track did nothing. Its menu (MIDI, MP3, WAV) was opening off the edge of the window; it now opens beside the button.']

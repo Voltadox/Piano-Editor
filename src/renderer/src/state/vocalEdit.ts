@@ -1,4 +1,4 @@
-import { newAudioTrack, type AudioClip, type AudioTrack, type GuideVoice } from '../model/audio'
+import { DEFAULT_TUNE, isSongLine, newAudioTrack, type AudioClip, type AudioTrack, type GuideVoice } from '../model/audio'
 import { newId, PALETTE, tempoMap } from '../model/song'
 import { getState, useStore, type VocalNoteRef } from './store'
 import { planWordMove, type Span } from '../model/vocalTiming'
@@ -10,7 +10,10 @@ const VOCAL_COLORS = ['#b794f4', '#f687b3', '#81e6d9', '#fbd38d', '#90cdf4', '#f
 export function addAudioTrack(name = 'Vocals', patch: Partial<AudioTrack> = {}): number {
   let id = -1
   getState().apply((song) => {
-    const t = { ...newAudioTrack(newId(), name, VOCAL_COLORS[song.audioTracks.length % VOCAL_COLORS.length] ?? PALETTE[0]), ...patch }
+    const base = newAudioTrack(newId(), name, VOCAL_COLORS[song.audioTracks.length % VOCAL_COLORS.length] ?? PALETTE[0])
+    // with the song's vocals separated, a new track follows the song's melody to start with
+    if (song.tracks.some((x) => x.role === 'melody')) base.tune = { ...DEFAULT_TUNE, mode: 'reference', voice: 'melody' }
+    const t = { ...base, ...patch }
     id = t.id
     return { ...song, audioTracks: [...song.audioTracks, t] }
   })
@@ -172,7 +175,7 @@ export function harmonyTracks(voices: GuideVoice[], centre: number): number[] {
   return voices.map((v) => {
     const name = `Harmony · ${VOICE_NAMES[v]}`
     const found = getState().song.audioTracks.find((t) => t.name === name)
-    const tune = { mode: 'guide' as const, speed: 0.9, voice: v, centre }
+    const tune = { mode: isSongLine(v) ? ('reference' as const) : ('guide' as const), speed: 0.9, voice: v, centre }
     if (found) {
       updateAudioTrack(found.id, { tune })
       return found.id

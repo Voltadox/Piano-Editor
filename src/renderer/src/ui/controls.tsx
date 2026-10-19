@@ -29,11 +29,11 @@ export function Slider(props: {
 }
 
 /** A row of mutually exclusive text buttons. */
-export function Choice<T extends string | number>(props: { value: T; options: { value: T; label: string; title?: string }[]; onChange: (v: T) => void; label: string }): React.JSX.Element {
+export function Choice<T extends string | number>(props: { value: T; options: { value: T; label: string; title?: string; disabled?: boolean }[]; onChange: (v: T) => void; label: string }): React.JSX.Element {
   return (
     <div className="seg text" role="group" aria-label={props.label}>
       {props.options.map((o) => (
-        <button key={String(o.value)} title={o.title} className={o.value === props.value ? 'on' : ''} aria-pressed={o.value === props.value} onClick={() => props.onChange(o.value)}>
+        <button key={String(o.value)} title={o.title} disabled={o.disabled} className={o.value === props.value ? 'on' : ''} aria-pressed={o.value === props.value} onClick={() => props.onChange(o.value)}>
           {o.label}
         </button>
       ))}

@@ -8,14 +8,21 @@ export type VocalPreset = 'clean' | 'dreamy' | 'underwater' | 'tape' | 'haze'
 export type GuideVoice = 'root' | 'third' | 'fifth' | 'octave' | 'melody' | 'above' | 'below'
 
 export interface Tune {
-  /** off, snap to the song's key, or follow a chord-tone guide line */
-  mode: 'off' | 'key' | 'guide'
+  /** off, snap to the song's key, follow a chord-tone guide line, or follow the song's own vocal lines */
+  mode: 'off' | 'key' | 'guide' | 'reference'
   /** 0 natural, glides between notes .. 1 instant, the hard stepped sound */
   speed: number
   voice: GuideVoice
   /** register of the guide line: pitch around which it is placed */
   centre: number
 }
+
+/** The song's own vocal lines, found when its vocals were separated (the rest are chord tones). */
+export const SONG_LINES: GuideVoice[] = ['melody', 'above', 'below']
+export const isSongLine = (v: GuideVoice): boolean => SONG_LINES.includes(v)
+
+/** A track's autotune mode. Older songs followed the song's lines from the chord mode; that's the song mode now. */
+export const tuneMode = (t: Tune): Tune['mode'] => (t.mode === 'guide' && isSongLine(t.voice) ? 'reference' : t.mode)
 
 export interface AudioClip {
   id: number

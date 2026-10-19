@@ -1,4 +1,4 @@
-import type { AudioClip, AudioTrack } from '../model/audio'
+import { isSongLine, tuneMode, type AudioClip, type AudioTrack } from '../model/audio'
 import { guideLine, guidePitchAt, scaleOf, songKey } from '../model/guide'
 import { tempoMap, type Song } from '../model/song'
 import { useStore } from '../state/store'
@@ -77,8 +77,11 @@ export function tuneSettings(song: Song, track: AudioTrack, clip: AudioClip, tak
 
 function buildSettings(song: Song, track: AudioTrack, clip: AudioClip, take: TakeData): TuneSettings {
   const scale = scaleOf(songKey(song))
+  const mode = tuneMode(track.tune)
+  // following the song or the chords both aim at a guide line; they differ in which line
+  const voice = mode === 'reference' ? (isSongLine(track.tune.voice) ? track.tune.voice : 'melody') : track.tune.voice
   const settings: TuneSettings = {
-    mode: track.tune.mode,
+    mode: mode === 'reference' ? 'guide' : mode,
     speed: track.tune.speed,
     scale,
     transpose: track.transpose,
@@ -86,7 +89,7 @@ function buildSettings(song: Song, track: AudioTrack, clip: AudioClip, take: Tak
     formant: track.formant,
     edits: clip.edits?.[clip.takes[clip.active]]
   }
-  if (track.tune.mode === 'guide') {
+  if (settings.mode === 'guide') {
     // a take cut into pieces (words moved in time) follows the guide where each piece now plays;
     // every piece builds the same line, so they share one tuned version of the take
     const map = tempoMap(song)
@@ -94,12 +97,12 @@ function buildSettings(song: Song, track: AudioTrack, clip: AudioClip, take: Tak
     const pieces = track.clips.filter((c) => c.takes[c.active] === takeId)
     const frames = Math.ceil(take.pcm.length / (take.rate * HOP_SEC))
     const originOf = (c: AudioClip): number => map.tickToSec(c.tick) - c.offset
-    const guide = guideLine(song, track.tune.voice, track.tune.centre, originOf(pieces[0] ?? clip), frames, HOP_SEC)
+    const guide = guideLine(song, voice, track.tune.centre, originOf(pieces[0] ?? clip), frames, HOP_SEC)
     for (const c of pieces.slice(1)) {
       const origin = originOf(c)
       if (Math.abs(origin - originOf(pieces[0])) < 1e-6) continue
       const to = Math.min(frames, Math.ceil((c.offset + c.duration) / HOP_SEC))
-      for (let i = Math.max(0, Math.floor(c.offset / HOP_SEC)); i < to; i++) guide[i] = guidePitchAt(song, origin + i * HOP_SEC, track.tune.voice, track.tune.centre) ?? NaN
+      for (let i = Math.max(0, Math.floor(c.offset / HOP_SEC)); i < to; i++) guide[i] = guidePitchAt(song, origin + i * HOP_SEC, voice, track.tune.centre) ?? NaN
     }
     settings.guide = guide
   }
