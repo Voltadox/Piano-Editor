@@ -529,6 +529,10 @@ export const HELP: HelpSection[] = [
         a: 'Check that the mic is plugged in and chosen under Input in the Vocals tab. In Windows, open Settings → Privacy & security → Microphone and make sure microphone access, and access for desktop apps, are on. Close other apps that might be using the mic, then click Check level again.'
       },
       {
+        q: 'Which version do I have, and how do I update?',
+        a: 'The version is at the top of this guide, with Check for updates and What\'s new. Keyfall also checks by itself a few seconds after it opens and tells you if a newer version is in your project folder or on GitHub.\n\nIf you run Keyfall from the project folder (release\\win-unpacked), it doesn\'t rebuild on its own: run npm run pack in the project folder after pulling changes. The first time a new version opens, What\'s new shows its changes.'
+      },
+      {
         q: 'My recording is too quiet or distorted.',
         a: 'Watch the level meter: aim for about two thirds when you sing. Adjust the mic\'s gain in Windows sound settings or on your audio interface. Keyfall records the mic as it is, with no automatic gain or noise suppression, then brings each take to a standard vocal level when it tunes it, so a slightly quiet take is fine; a distorted one can\'t be fixed afterwards.'
       },

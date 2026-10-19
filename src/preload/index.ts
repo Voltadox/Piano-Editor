@@ -14,6 +14,8 @@ const api = {
   saveDialog: (kind: FilterKind, defaultName: string): Promise<string | null> =>
     ipcRenderer.invoke('save-dialog', kind, defaultName),
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('pick-folder'),
+  appVersion: (): Promise<string> => ipcRenderer.invoke('app-version'),
+  checkUpdates: (): Promise<{ current: string; project: string | null; latest: string | null; error: string | null }> => ipcRenderer.invoke('check-updates'),
   writeFile: (path: string, data: Uint8Array): Promise<{ path: string; name: string }> =>
     ipcRenderer.invoke('write-file', path, data),
   setDirty: (dirty: boolean): void => ipcRenderer.send('set-dirty', dirty),

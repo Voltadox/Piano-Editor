@@ -340,6 +340,17 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg3); paddin
   .drawer, .toast, .icon-btn.rec.on { transition: none; animation: none; }
 }
 
+/* ---------- version ---------- */
+.version-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 20px; border-bottom: 1px solid var(--line); }
+.version-line .meta { color: var(--muted); font-size: 12px; }
+.version-line .version-result { flex-basis: 100%; }
+.vdialog.whats-new { width: min(620px, calc(100vw - 40px)); }
+.whats-new-body { overflow-y: auto; padding: 4px 24px 8px; line-height: 1.55; color: #c9cee0; user-select: text; }
+.whats-new-body h3 { margin: 12px 0 4px; font-size: 13px; color: var(--accent); }
+.whats-new-body h3 .meta { font-weight: 400; color: var(--muted); margin-left: 6px; }
+.whats-new-body ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.whats-new-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 16px; }
+
 /* ---------- help ---------- */
 .vdialog.help { width: min(920px, calc(100vw - 40px)); height: min(760px, calc(100vh - 40px)); }
 .help .vhead { gap: 14px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }

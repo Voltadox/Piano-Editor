@@ -1,6 +1,6 @@
 {
   "name": "keyfall",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Falling-notes MIDI editor with soundfont playback",
   "main": "out/main/index.js",
   "scripts": {
@@ -9,6 +9,7 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dist": "electron-vite build && electron-builder --win",
+    "pack": "electron-vite build && electron-builder --win --dir",
     "postinstall": "node node_modules/electron/install.js"
   },
   "author": "",

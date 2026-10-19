@@ -35,6 +35,7 @@ import { ContextMenu, VocalNoteMenu } from './ui/ContextMenu'
 import { StudioPanel } from './ui/StudioPanel'
 import { VideoDialog } from './ui/VideoDialog'
 import { HelpDialog } from './ui/HelpDialog'
+import { WhatsNewDialog } from './ui/VersionCheck'
 
 function isTyping(e: KeyboardEvent): boolean {
   const el = e.target as HTMLElement | null
@@ -230,6 +231,7 @@ export default function App(): React.JSX.Element {
       <ChordMenu />
       <VideoDialog />
       <HelpDialog />
+      <WhatsNewDialog />
       <Busy />
       {dropping && <div className="drop-hint">Drop a MIDI file to open it, or a soundfont to load it</div>}
     </div>

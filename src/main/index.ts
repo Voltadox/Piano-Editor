@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, session, utilityProcess, type FileFilter, type UtilityProcess, type WebContents } from 'electron'
 import { createWriteStream } from 'fs'
 import { stat } from 'fs/promises'
-import { join, basename } from 'path'
+import { join, basename, dirname } from 'path'
 import { rmSync } from 'fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
 
@@ -126,6 +126,36 @@ ipcMain.handle('read-file', async (_e, path: string) => {
 ipcMain.handle('save-dialog', async (_e, kind: FilterKind, defaultName: string) => {
   const res = await dialog.showSaveDialog(win!, { defaultPath: defaultName, filters: FILTERS[kind] })
   return res.canceled || !res.filePath ? null : res.filePath
+})
+
+ipcMain.handle('app-version', () => app.getVersion())
+
+/**
+ * Newer versions of Keyfall than this one: in the project folder this build was made from (the
+ * app runs from <project>/release/win-unpacked, which isn't rebuilt on its own), and on GitHub.
+ */
+ipcMain.handle('check-updates', async () => {
+  const current = app.getVersion()
+  let project: string | null = null
+  if (app.isPackaged) {
+    try {
+      const pkg = JSON.parse(await readFile(join(dirname(process.execPath), '..', '..', 'package.json'), 'utf8'))
+      if (pkg.name === 'keyfall' && typeof pkg.version === 'string') project = pkg.version
+    } catch {
+      // installed somewhere else: no project folder to compare with
+    }
+  }
+  let latest: string | null = null
+  let error: string | null = null
+  try {
+    const res = await fetch('https://raw.githubusercontent.com/Voltadox/Piano-Editor/main/package.json', { signal: AbortSignal.timeout(6000), cache: 'no-store' })
+    if (!res.ok) throw new Error(`GitHub answered ${res.status}`)
+    const pkg = (await res.json()) as { version?: unknown }
+    if (typeof pkg.version === 'string') latest = pkg.version
+  } catch (err) {
+    error = err instanceof Error ? err.message : String(err)
+  }
+  return { current, project, latest, error }
 })
 
 ipcMain.handle('pick-folder', async () => {

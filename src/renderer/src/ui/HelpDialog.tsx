@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { HELP, type HelpEntry } from './helpContent'
 import * as I from './icons'
+import { VersionLine } from './VersionCheck'
 
 /** Whether the guide is open. Kept here so the guide stays self-contained. */
 export const useHelp = create<{ open: boolean; set: (open: boolean) => void }>()((set) => ({
@@ -136,6 +137,7 @@ export function HelpDialog(): React.JSX.Element | null {
           </div>
           <button className="icon-btn" title="Close (Esc)" onClick={close}><I.IconClose size={16} /></button>
         </div>
+        <VersionLine onWhatsNew={close} />
         <div className="help-body">
           <nav className="help-nav" aria-label="Sections">
             {sections.map((s) => (
