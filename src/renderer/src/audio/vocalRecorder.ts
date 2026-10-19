@@ -6,6 +6,7 @@ import { addRecordedPasses } from '../state/vocalEdit'
 import { engine } from './engine'
 import { detectPitch, hzToMidi } from './pitch'
 import { addTake } from './takes'
+import { gateFlickers } from './cleanup'
 
 /**
  * Microphone capture for vocal takes. Audio is captured continuously while recording; the engine
@@ -42,6 +43,8 @@ let tone: { osc: OscillatorNode; gain: GainNode } | null = null
 /** the last ~85 ms of mic input */
 const recent = new Float32Array(4096)
 let pitchCache = { at: 0, midi: null as number | null }
+/** How often the last recording's mic dropped to silence on its own (per minute), for a warning. */
+export let lastFlickers = 0
 
 /**
  * The pitch being sung right now (MIDI, fractional), or null when silent or unpitched. Worked out
@@ -230,6 +233,7 @@ export function finishVocalCapture(): number {
     if (f1 - f0 > rate * 0.3) passes.push({ song, pcm: all.slice(f0, f1) })
   })
 
+  lastFlickers = Math.max(0, ...passes.map((p) => gateFlickers(p.pcm, rate)))
   const map = tempoMap(getState().song)
   passes.forEach((p, i) => {
     const trackId = s.kind === 'harmony' ? s.trackIds[i] : s.trackIds[0]

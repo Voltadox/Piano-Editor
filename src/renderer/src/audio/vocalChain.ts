@@ -112,7 +112,7 @@ export function buildChain(ctx: BaseAudioContext, preset: VocalPreset, amount: n
   comp.ratio.value = 3
   comp.attack.value = 0.006
   comp.release.value = 0.15
-  const hp = gain(ctx, 1.4)
+  const hp = gain(ctx, 1.2)
   input.connect(rumble).connect(comp).connect(hp)
   const dry = gain(ctx, 1)
   dry.connect(output)

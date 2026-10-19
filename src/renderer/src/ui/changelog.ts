@@ -7,6 +7,15 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.2.4',
+    date: '19 October 2026',
+    notes: [
+      'Less static: a gentle gate keeps mic hiss down between phrases instead of turning it up with your voice, takes are boosted by at most +18 dB, and peaks no longer go past full scale (which crackled).',
+      'Fewer cut-outs: short dropouts in the middle of a sung sound (from a mic noise gate chattering) are filled in.',
+      'If your mic keeps cutting itself to silence in quiet moments, Keyfall tells you after recording and where to turn that off.'
+    ]
+  },
+  {
     version: '0.2.3',
     date: '19 October 2026',
     notes: [
