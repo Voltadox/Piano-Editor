@@ -23,6 +23,12 @@ export function stop(): void {
   engine.freeRun = false
   if (st.vocalRec) {
     const n = finishVocalCapture()
+    if (st.vocalRec.kind === 'beatbox') {
+      getState().set({ playing: false, recording: false, vocalRec: null })
+      if (n) void import('./beatbox').then((m) => m.convertBeatbox())
+      else getState().notify('Nothing was recorded')
+      return
+    }
     const what = st.vocalRec.kind === 'harmony' ? 'harmony voice' : 'take'
     // a mic that keeps switching itself off in quiet moments is worth knowing about
     const gated = n && lastFlickers >= 30 ? ' Your mic kept cutting to silence in quiet moments: that\'s a noise gate or noise suppression outside Keyfall (Windows sound settings → your mic → turn off enhancements / Voice clarity, or in headset software). Keyfall smooths it over, but turning it off sounds cleaner.' : ''

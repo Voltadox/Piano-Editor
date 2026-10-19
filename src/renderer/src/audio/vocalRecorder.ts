@@ -22,8 +22,8 @@ interface Mic {
 }
 
 export interface VocalSession {
-  kind: 'take' | 'harmony'
-  /** take: [track]; harmony: one track per voice, recorded on successive loop passes */
+  kind: 'take' | 'harmony' | 'beatbox'
+  /** take and beatbox: [track]; harmony: one track per voice, recorded on successive loop passes */
   trackIds: number[]
   voices?: GuideVoice[]
   centre?: number

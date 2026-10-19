@@ -43,8 +43,8 @@ export interface AudioClip {
 
 export interface AudioTrack {
   id: number
-  /** vocal (default): tuned and effected; reference or stem: played exactly as it is */
-  kind?: 'vocal' | 'reference' | 'stem'
+  /** vocal (default): tuned and effected; reference, stem or beatbox (a take turned into drums): played exactly as it is */
+  kind?: 'vocal' | 'reference' | 'stem' | 'beatbox'
   name: string
   color: string
   volume: number

@@ -1,14 +1,70 @@
 import { useState } from 'react'
+import { beatboxAudio, beatboxDrums, beatboxSnap, convertBeatbox, recordBeatbox, type BeatboxSnap } from '../actions/beatbox'
 import { DRUM_LANES, emptyPattern, stepsPerBar, type Beat, type Pattern } from '../model/beat'
 import { starterPattern, STYLES } from '../model/beatgen'
 import { newId } from '../model/song'
 import { beatTrackId, generateDrums, setBeat } from '../state/arrange'
 import { setTempo } from '../state/edit'
 import { getState, useStore } from '../state/store'
-import { Field, Slider } from './controls'
+import { Choice, Field, Slider } from './controls'
 import * as I from './icons'
+import { KitChoice } from './SoundPicker'
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+const SNAPS: { value: BeatboxSnap; label: string; title: string }[] = [
+  { value: '1/8', label: '1/8', title: 'Every hit moves to the nearest eighth note' },
+  { value: '1/16', label: '1/16', title: 'Every hit moves to the nearest sixteenth note' },
+  { value: '1/16T', label: '1/16T', title: 'Sixteenth-note triplets, for a swung or triplet feel' },
+  { value: 'off', label: 'Off', title: 'Every hit stays exactly where you made it' }
+]
+
+/** Beatboxing a beat into the mic over the song, turned into a drum track. */
+function BeatboxSection(): React.JSX.Element {
+  const song = useStore((s) => s.song)
+  const rec = useStore((s) => s.vocalRec)
+  const [snap, setSnap] = useState(beatboxSnap)
+  const recording = rec?.kind === 'beatbox'
+  const take = beatboxAudio(song)
+  const drums = beatboxDrums(song)
+  return (
+    <section className="psection">
+      <div className="ptitle">Beatbox a beat</div>
+      <p className="drawer-hint tight">
+        Beatbox along to the song into the mic and it becomes a drum track: low sounds (“b”, “boom”) play the kick, “pf”, “k” or “psh” the snare, and “ts”/“t” the hi-hat (hold a “tsss” for an open hat). Use headphones, so the mic hears only you. With a loop on, each pass is another take.
+      </p>
+      <button className={`btn rec-take${recording ? ' on' : ''}`} disabled={!!rec && !recording} onClick={recordBeatbox}>
+        <span className="dot" /> {recording ? 'Stop and make the drums' : take?.clips.length ? 'Record another beatbox' : 'Record a beatbox'}
+      </button>
+      <Field label="Snap to">
+        <Choice
+          label="Snap beatbox hits to"
+          value={snap}
+          options={SNAPS}
+          onChange={(v) => {
+            setSnap(v)
+            if (take?.clips.length) void convertBeatbox(v)
+          }}
+        />
+      </Field>
+      {drums && (
+        <Field label="Kit">
+          <KitChoice track={drums} />
+        </Field>
+      )}
+      {take?.clips.length ? (
+        <>
+          <p className="drawer-hint tight">
+            Recording again or changing the snap rebuilds the <em>Beatbox drums</em> track from the take playing in each clip. Picked another take in the Vocals tab? Rebuild it.
+          </p>
+          <div className="prow-buttons">
+            <button className="btn" onClick={() => void convertBeatbox(snap)}>Rebuild the drums</button>
+          </div>
+        </>
+      ) : null}
+    </section>
+  )
+}
 
 /** The Beat tab: generate a drum part in a style, then edit its patterns and which bar plays which. */
 export function BeatPanel(): React.JSX.Element {
@@ -54,6 +110,7 @@ export function BeatPanel(): React.JSX.Element {
 
   return (
     <>
+      <BeatboxSection />
       <section className="psection">
         <div className="ptitle">Generate a beat</div>
         <p className="drawer-hint tight">Writes an original drum part that fits what you’ve played: kicks follow your bass notes, hats follow how busy the piano is, with fills every four bars.</p>

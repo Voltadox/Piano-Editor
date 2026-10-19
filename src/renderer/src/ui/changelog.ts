@@ -7,6 +7,15 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.7.0',
+    date: '20 October 2026',
+    notes: [
+      'Beatbox a beat: in the Beat tab, press Record a beatbox and beatbox along to the song into the mic, like recording a vocal. When you stop, it becomes a Beatbox drums track: your low sounds (“b”, “boom”) play the kick, “pf”, “k” or “psh” the snare, and “ts” the hi-hat (a held “tsss” is an open hat). Keyfall learns what your own kick, snare and hat sound like from the take, so it doesn’t matter exactly how you make them.',
+      'Hits snap to sixteenths (or eighths, triplets, or nowhere); change it and the drums are rebuilt. Pick the kit from any of your soundfonts. Your recording stays on a muted Beatbox track to compare, and with a loop on every pass is another take.',
+      'Drag clips along the timeline by the strip along their top: they move by beats, or freely with Alt. Dragging the song moves everything that came from it too (its stems, the notes to sing, chords, lyrics and recreated parts), so nothing falls out of step. Ctrl+Z puts it back.'
+    ]
+  },
+  {
     version: '0.6.0',
     date: '19 October 2026',
     notes: [

@@ -18,7 +18,7 @@ export type DrawerTab = 'reference' | 'tracks' | 'mixer' | 'vocals' | 'beat' | '
 
 /** A vocal recording in progress, for the UI. */
 export interface VocalRecording {
-  kind: 'take' | 'harmony'
+  kind: 'take' | 'harmony' | 'beatbox'
   trackIds: number[]
   voices?: GuideVoice[]
   /** which pass (harmony voice) is being recorded */

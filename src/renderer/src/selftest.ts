@@ -603,6 +603,60 @@ export async function runSelftest(arg: string): Promise<void> {
       log('fit to bars: offered', offered.join(' '), '· tempo', fitted.tempos[0].bpm, '· chords start at bars', starts.join(' '), '· loop bars', getState().loop && `${getState().loop!.start / bar + 1}-${getState().loop!.end / bar}`, '·', getState().toast?.text)
     }
 
+    // a beatboxed take at 100 BPM (kick on 1 and 3, snare on 2 and 4, hats on the eighths between),
+    // sung 30 ms late here and there, turned into drums snapped to sixteenths
+    {
+      const s = { ...emptySong(), tempos: [{ tick: 0, bpm: 100 }] }
+      getState().loadSong(s, 'Beatbox test', null)
+      const rate = 48000
+      const step = 60 / 100 / 4
+      const pcm = new Float32Array(Math.round(rate * (32 * step + 1)))
+      let seed = 7
+      const noise = (): number => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1
+      const want: string[] = []
+      for (let st = 0; st < 32; st++) {
+        const kind = st % 8 === 0 ? 'kick' : st % 8 === 4 ? 'snare' : st % 2 === 0 ? 'hat' : ''
+        if (!kind) continue
+        want.push(`${kind[0]}${st}`)
+        const at = Math.round((st * step + (st % 3 === 0 ? 0.03 : 0)) * rate)
+        let lp = 0
+        let lp2 = 0
+        let prev = 0
+        let ph = 0
+        for (let i = 0; i < rate * 0.3 && at + i < pcm.length; i++) {
+          const t = i / rate
+          const n = noise()
+          lp += 0.3 * (n - lp)
+          lp2 += 0.08 * (n - lp2)
+          let v: number
+          if (kind === 'kick') {
+            ph += (2 * Math.PI * (55 + 90 * Math.exp(-t / 0.03))) / rate
+            v = 0.7 * Math.sin(ph) * Math.exp(-t / 0.07)
+          } else if (kind === 'snare') v = 1.2 * (lp - lp2) * Math.exp(-t / 0.09)
+          else v = 0.5 * (n - prev) * Math.exp(-t / 0.035)
+          prev = n
+          pcm[at + i] += v
+        }
+      }
+      const takeId = addTake(pcm, rate)
+      const bb = addAudioTrack('Beatbox', { kind: 'beatbox', tune: { mode: 'off', speed: 0.85, voice: 'root', centre: 57 } })
+      addRecordedPasses(bb, [{ tick: 0, duration: pcm.length / rate, takeId }])
+      const { convertBeatbox } = await import('./actions/beatbox')
+      await convertBeatbox('1/16')
+      const drums = getState().song.tracks.find((t) => t.beatbox)
+      const sixteenth = getState().song.ppq / 4
+      const name: Record<number, string> = { 36: 'k', 38: 's', 42: 'h', 46: 'o' }
+      const got = drums?.notes.map((n) => `${name[n.pitch] ?? n.pitch}${n.tick / sixteenth}`) ?? []
+      log('beatbox:', `${got.filter((g) => want.includes(g)).length}/${want.length} right`, '· extra', got.filter((g) => !want.includes(g)).join(' ') || 'none', '· missed', want.filter((w) => !got.includes(w)).join(' ') || 'none', '· channel', drums?.channel, '· take muted', getState().song.audioTracks.find((t) => t.id === bb)?.muted, '·', getState().toast?.text)
+      // the timeline, showing the take's grip strip and the drums made from it
+      getState().set({ timeline: true })
+      await wait(1500)
+      await window.keyfall.selftestCapture(`${outDir}/window-timeline-beatbox.png`)
+      getState().set({ timeline: false, drawerOpen: true, drawerTab: 'beat' })
+      await wait(1500)
+      await window.keyfall.selftestCapture(`${outDir}/window-beatbox-panel.png`)
+    }
+
     // recording into a brand-new, empty song must keep running (with its count-in) until stopped
     getState().loadSong(emptySong(), 'Untitled', null)
     engine.seek(0)

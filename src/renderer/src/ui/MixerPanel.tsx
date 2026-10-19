@@ -79,7 +79,7 @@ export function MixerPanel(): React.JSX.Element {
         track: { kind: 'audio', id: t.id },
         name: t.name,
         color: t.color,
-        kind: t.kind === 'reference' ? 'song' : t.kind === 'stem' ? 'stem' : 'vocal',
+        kind: t.kind === 'reference' ? 'song' : t.kind === 'stem' || t.kind === 'beatbox' ? 'stem' : 'vocal',
         volume: t.volume,
         pan: t.pan,
         fx: t.amount,

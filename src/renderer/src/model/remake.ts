@@ -11,10 +11,10 @@ import type { ChordMark, Note, RemakePart } from './song'
 
 export const BAND_RATE = 22050
 const N = 2048
-const HOP = 256
+export const HOP = 256
 /** spectrogram frames per second */
 export const FPS = BAND_RATE / HOP
-const BANDS = 48
+export const BANDS = 48
 const LO_HZ = 30
 const HI_HZ = 10500
 
@@ -27,6 +27,9 @@ function bandEdges(): number[] {
   return edges
 }
 const EDGES = bandEdges()
+
+/** The middle of a band, in Hz. */
+export const bandHz = (b: number): number => LO_HZ * (HI_HZ / LO_HZ) ** ((b + 0.5) / BANDS)
 
 /** Power in each band, frames × BANDS, from mono audio at BAND_RATE. */
 export function bandSpectrogram(x: Float32Array): Float32Array[] {
@@ -96,6 +99,31 @@ function onsetCurve(S: Float32Array[]): Float32Array {
   return flux
 }
 
+/**
+ * Frames where something is struck: peaks in the onset curve well above its local average, and
+ * above `floor` of the loudest strikes (a mix needs more; a lone voice can go lower).
+ */
+export function findOnsets(S: Float32Array[], floor = 0.06): number[] {
+  const T = S.length
+  const flux = onsetCurve(S)
+  const r = Math.round(FPS * 0.1)
+  const onsets: number[] = []
+  const gap = Math.round(FPS * 0.03)
+  const sorted = [...flux].sort((a, b) => a - b)
+  const loud = sorted[Math.floor(T * 0.99)] || 1
+  for (let t = 2; t < T - 2; t++) {
+    const v = flux[t]
+    if (v < flux[t - 1] || v < flux[t + 1] || v < flux[t - 2] || v < flux[t + 2]) continue
+    let mean = 0
+    for (let k = Math.max(0, t - r); k < Math.min(T, t + r); k++) mean += flux[k]
+    mean /= Math.min(T, t + r) - Math.max(0, t - r)
+    if (v < mean * 1.3 + loud * floor) continue
+    if (onsets.length && t - onsets[onsets.length - 1] < gap) continue
+    onsets.push(t)
+  }
+  return onsets
+}
+
 const sum1 = (w: Float32Array): Float32Array => {
   const s = w.reduce((a, v) => a + v, 0)
   return s > 0 ? w.map((v) => v / s) : w
@@ -127,7 +155,7 @@ function nnls(d: Float32Array, W: Float32Array[], iters = 150): Float64Array {
 
 const CYMBAL_HZ = 2000
 /** the onset curve peaks this long before the hit you hear (the analysis window reaches it early) */
-const ONSET_LAG = 0.023
+export const ONSET_LAG = 0.023
 const CYMBALS: number[] = [42, 46, 49, 51]
 
 /**
@@ -141,23 +169,7 @@ export function transcribeDrums(x: Float32Array, templates: { note: number; w: F
   const S = bandSpectrogram(x).map((f) => f.map(Math.sqrt))
   const T = S.length
   if (T < 8 || !templates.length) return []
-  // onsets: peaks in the onset curve well above its local average
-  const flux = onsetCurve(S)
-  const r = Math.round(FPS * 0.1)
-  const onsets: number[] = []
-  const gap = Math.round(FPS * 0.03)
-  const sorted = [...flux].sort((a, b) => a - b)
-  const loud = sorted[Math.floor(T * 0.99)] || 1
-  for (let t = 2; t < T - 2; t++) {
-    const v = flux[t]
-    if (v < flux[t - 1] || v < flux[t + 1] || v < flux[t - 2] || v < flux[t + 2]) continue
-    let mean = 0
-    for (let k = Math.max(0, t - r); k < Math.min(T, t + r); k++) mean += flux[k]
-    mean /= Math.min(T, t + r) - Math.max(0, t - r)
-    if (v < mean * 1.3 + loud * 0.06) continue
-    if (onsets.length && t - onsets[onsets.length - 1] < gap) continue
-    onsets.push(t)
-  }
+  const onsets = findOnsets(S)
   const rises = onsets.map((t) => hitFeature(S, t))
   const sizes = rises.map((d) => d.reduce((s, v) => s + v, 0))
   const bigRise = [...sizes].sort((a, b) => a - b)[Math.floor(sizes.length * 0.95)] || 1

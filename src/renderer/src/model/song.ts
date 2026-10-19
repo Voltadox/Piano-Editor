@@ -49,6 +49,8 @@ export interface Track {
   silent?: boolean
   /** a part of the reference's backing track, recreated as MIDI */
   remake?: RemakePart
+  /** drums played from a beatboxed take (rebuilt from it when it's recorded again) */
+  beatbox?: boolean
 }
 
 export type RemakePart = 'drums' | 'bass' | 'keys'

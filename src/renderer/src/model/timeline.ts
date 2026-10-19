@@ -219,3 +219,49 @@ export function removeBars(song: Song, from: number, to: number): Song {
   ].filter((t, i, all) => i === 0 || t.bpm !== all[i - 1].bpm)
   return { ...cleared, tracks, audioTracks, chords, sections, lyrics, tempos }
 }
+
+/** The audio tracks that are the reference song: the song itself and its separated stems. */
+export function songAudio(song: Song): number[] {
+  const ref = song.reference
+  return ref ? [ref.trackId, ...(ref.stems ? [ref.stems.vocals, ref.stems.instrumental] : [])] : []
+}
+
+/**
+ * Moves a clip along the song by some ticks. The reference song moves as one with everything made
+ * from it: its stems, the notes to sing, the recreated parts, the chord lane and pad, the lyrics
+ * and the drum hits heard in it. Whatever is pulled back past the start of the song is cut off.
+ */
+export function moveClip(song: Song, trackId: number, clipId: number, ticks: number): Song {
+  if (!ticks) return song
+  const map = tempoMap(song)
+  const whole = songAudio(song).includes(trackId)
+  const shiftClip = (c: AudioClip): AudioClip | null => {
+    const tick = c.tick + ticks
+    if (tick >= 0) return { ...c, tick }
+    const lost = -map.tickToSec(tick)
+    return c.duration - lost > 0.05 ? { ...c, tick: 0, offset: c.offset + lost, duration: c.duration - lost, fadeIn: CUT_FADE } : null
+  }
+  const moving = whole ? songAudio(song) : [trackId]
+  const audioTracks = song.audioTracks.map((t) => {
+    if (!moving.includes(t.id)) return t
+    const clips = t.clips.map((c) => (whole || c.id === clipId ? shiftClip(c) : c)).filter((c): c is AudioClip => !!c)
+    return { ...t, clips: clips.sort((a, b) => a.tick - b.tick) }
+  })
+  if (!whole) return { ...song, audioTracks }
+
+  const later = <T extends { tick: number }>(list: T[]): T[] => list.map((x) => ({ ...x, tick: x.tick + ticks })).filter((x) => x.tick >= 0)
+  const tracks = song.tracks.map((t) => (t.remake || t.role ? { ...t, notes: later(t.notes), ccs: later(t.ccs), bends: later(t.bends) } : t))
+  // the chord in effect at the start of the song stays in effect there
+  const moved = song.chords.map((c) => ({ ...c, tick: c.tick + ticks }))
+  const before = moved.filter((c) => c.tick < 0).pop()
+  const chords = [...(before && !moved.some((c) => c.tick === 0) ? [{ ...before, tick: 0 }] : []), ...moved.filter((c) => c.tick >= 0)]
+  const lyrics = song.lyrics.map((l) => ({ ...l, tick: l.tick + ticks, end: l.end + ticks })).filter((l) => l.tick >= 0)
+  const ref = song.reference!
+  const clip = song.audioTracks.find((t) => t.id === ref.trackId)?.clips[0]
+  const secs = clip ? map.tickToSec(clip.tick + ticks) - map.tickToSec(clip.tick) : 0
+  const shiftHits = (hits: number[]): number[] => hits.map((h) => h + secs).filter((h) => h >= 0)
+  const bars = Math.round(ticks / ticksPerBar(song))
+  const barEnergy = bars >= 0 ? [...new Array(bars).fill(0), ...ref.barEnergy] : ref.barEnergy.slice(-bars)
+  const reference = { ...ref, drums: { kick: shiftHits(ref.drums.kick), snare: shiftHits(ref.drums.snare), hat: shiftHits(ref.drums.hat) }, barEnergy }
+  return { ...song, tracks, audioTracks, chords, lyrics, reference }
+}

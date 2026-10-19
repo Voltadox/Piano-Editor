@@ -90,6 +90,10 @@ export const HELP: HelpSection[] = [
         a: 'Press Tab (or the switch in the top bar) for a view of every track laid out left to right, like a video editor: note tracks, vocals, the song and its stems, each in its own lane.\n- Drag across lanes to pick bars (hold Alt to pick beats). Shift+click stretches the selection.\n- Right-click it: Clear silences those bars on those tracks (for a vocal break), Repeat copies them to the end of the song or ×2, ×4, ×8, Loop plays them round, and Remove takes the bars out of the whole song so everything after moves back.\n- Del clears, Ctrl+D repeats once, Esc lets go.\n- Scroll to move along the song, Ctrl+scroll to zoom, Shift+scroll for more lanes. Click the ruler to move the playhead; Shift+drag it to set the loop.\n- Double-click to go to the falling notes at that point. Tab goes back.'
       },
       {
+        q: 'Can I move the song or a vocal along the timeline?',
+        a: 'Yes. Drag an audio clip by the strip along its top (with its name on it). It moves by whole beats so it stays on the grid; hold Alt to move it freely. Dragging the song (or one of its stems) moves the song with everything that came from it: the stems, the notes to sing, the chord names and Chords pad, the lyrics and the recreated drums, bass and keys. Anything pulled back past the start of the song is cut off. Ctrl+Z puts it back.'
+      },
+      {
         q: 'I played a loop without a click. How do I make it fit the bars?',
         a: 'Select the loop\'s notes (drag a box round them, or click the track in the Tracks tab), right-click, and pick a length under Fit to bars, such as 4 bars. Each choice shows the tempo it gives. Keyfall works out the tempo you played at from where the chords start, sets it, and moves the bar lines so the loop starts on a bar line and fills exactly that many bars. It sounds exactly the same; only the grid moves. The loop then plays round, and Ctrl+Z puts it back.\n\nIt\'s also in the Edit menu. Songs following a reference song keep the reference\'s tempo instead.'
       },
@@ -493,6 +497,10 @@ export const HELP: HelpSection[] = [
       {
         q: 'How do I edit the beat?',
         a: 'Click steps on the grid to add or remove hits; `Shift`+click adds a soft hit. Choose which pattern plays in each bar, add starter patterns, copy a pattern, set the swing, and add bars with +4 bars.'
+      },
+      {
+        q: 'Can I beatbox a beat?',
+        a: 'Yes. In the Beat tab, press Record a beatbox. It counts in, then the song plays while you beatbox into the mic (pick it in the Vocals tab). Press Stop (or Space) and your beatbox becomes a Beatbox drums track:\n- Low sounds (“b”, “boom”) play the kick, “pf”, “k” or “psh” the snare, “ts” or “t” the hi-hat, and a held “tsss” an open hat. Keyfall learns your own sounds from the take, so make them however feels natural, just keep each one the same each time.\n- Snap to moves every hit onto the grid (sixteenths to start); change it and the drums are rebuilt. Off keeps your exact timing.\n- Kit picks the drum kit from any of your soundfonts.\n- Use headphones: the mic shouldn\'t hear the song\'s own drums.\n- With a loop on, each pass is another take. Your recording stays on a muted Beatbox track; unmute it to compare, choose another take in the Vocals tab and press Rebuild the drums.\n\nRecording again rebuilds the Beatbox drums track, so edit its notes once you\'re happy with the take. To fill the song, select the bars in the timeline (Tab) and Repeat them.'
       }
     ]
   },

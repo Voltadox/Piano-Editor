@@ -3,7 +3,7 @@ import { engine } from '../audio/engine'
 import { getTake } from '../audio/takes'
 import { clearTimelineRange, loopTimelineRange, removeTimelineBars, repeatTimelineRange, toggleTimeline } from '../actions/timeline'
 import { setLoop } from '../actions/transport'
-import { arrangeEnd, type Range } from '../model/timeline'
+import { arrangeEnd, moveClip, songAudio, type Range } from '../model/timeline'
 import { audioAudible, isAudible, lowerBound, tempoMap, ticksPerBar, ticksPerBeat, trackTimes, type Song, type Track } from '../model/song'
 import { updateTrack } from '../state/edit'
 import { getState, useStore } from '../state/store'
@@ -12,12 +12,15 @@ import { updateAudioTrack } from '../state/vocalEdit'
 /**
  * The timeline: every track as a lane running left to right, like a video editor's, for working
  * on the song in big pieces. Drag across lanes to pick a stretch of bars, then clear it, repeat it
- * or take it out of the song. The falling-notes stage stays the place for notes.
+ * or take it out of the song. Audio clips are dragged along by the strip along their top. The
+ * falling-notes stage stays the place for notes.
  */
 
 /** lane height; the header column and ruler sizes are in the stylesheet */
 const LANE_H = 58
 const MAX_PPS = 600
+/** the strip along the top of an audio clip that drags it */
+const GRIP_H = 14
 
 interface Lane {
   kind: 'notes' | 'audio'
@@ -32,7 +35,7 @@ interface Lane {
 }
 
 function lanesOf(song: Song): Lane[] {
-  const tag = (t: Track): string => (t.beat ? 'Beat' : t.remake ? 'Remake' : t.silent ? 'To sing' : t.role === 'chords' ? 'Chords' : 'MIDI')
+  const tag = (t: Track): string => (t.beat ? 'Beat' : t.beatbox ? 'Beatbox' : t.remake ? 'Remake' : t.silent ? 'To sing' : t.role === 'chords' ? 'Chords' : 'MIDI')
   return [
     ...song.tracks.map((t) => ({ kind: 'notes' as const, id: t.id, name: t.name, color: t.color, tag: tag(t), muted: t.muted, solo: t.solo, silent: !!t.silent })),
     ...song.audioTracks.map((t) => ({
@@ -40,7 +43,7 @@ function lanesOf(song: Song): Lane[] {
       id: t.id,
       name: t.name,
       color: t.color,
-      tag: t.kind === 'reference' ? 'Song' : t.kind === 'stem' ? 'Stem' : 'Vocal',
+      tag: t.kind === 'reference' ? 'Song' : t.kind === 'stem' ? 'Stem' : t.kind === 'beatbox' ? 'Beatbox' : 'Vocal',
       muted: t.muted,
       solo: t.solo,
       silent: false
@@ -125,6 +128,7 @@ export function Timeline(): React.JSX.Element {
     | { kind: 'range'; x0: number; lane0: number; tick0: number; moved: boolean; fine: boolean }
     | { kind: 'seek' }
     | { kind: 'loop'; tick0: number }
+    | { kind: 'clip'; x0: number; lane: number; trackId: number; clipId: number; tick0: number; base: Song; moved: boolean }
     | null
   >(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -289,13 +293,25 @@ export function Timeline(): React.JSX.Element {
             ctx.roundRect(x0 + 0.5, top + 3, Math.max(2, x1 - x0 - 1), LANE_H - 7, 5)
             ctx.fill()
             ctx.stroke()
+            // the grip, with the clip's name
+            ctx.save()
+            ctx.beginPath()
+            ctx.roundRect(x0 + 0.5, top + 3, Math.max(2, x1 - x0 - 1), GRIP_H, [5, 5, 0, 0])
+            ctx.fillStyle = alpha(t.color, 0.32)
+            ctx.fill()
+            ctx.clip()
+            ctx.fillStyle = '#e6e9f5'
+            ctx.font = '600 10px "Segoe UI", system-ui, sans-serif'
+            ctx.textBaseline = 'middle'
+            ctx.fillText(t.name, Math.max(x0, 0) + 6, top + 3 + GRIP_H / 2 + 0.5)
+            ctx.restore()
             const takeId = c.takes[c.active]
             const peaks = takeId ? peaksOf(takeId) : null
             const take = takeId ? getTake(takeId) : undefined
             if (peaks && take) {
               ctx.fillStyle = alpha(t.color, 0.8)
-              const mid = top + LANE_H / 2 - 1
-              const amp = (LANE_H - 14) / 2
+              const mid = top + 3 + GRIP_H + (LANE_H - 7 - GRIP_H) / 2
+              const amp = (LANE_H - 7 - GRIP_H) / 2 - 3
               for (let x = Math.max(0, Math.floor(x0)); x < Math.min(W, x1); x++) {
                 const a = c.offset + (secAt(x) - s0)
                 const b = c.offset + (secAt(x + 1) - s0)
@@ -406,6 +422,18 @@ export function Timeline(): React.JSX.Element {
     return tick >= r.from && tick < r.to && (l.kind === 'notes' ? r.tracks.includes(l.id) : r.audio.includes(l.id))
   }
   const activate = (lane: Lane): void => getState().set(lane.kind === 'notes' ? { activeTrackId: lane.id } : { activeAudioId: lane.id })
+  /** The audio clip whose grip is under a point, if any. */
+  const gripAt = (x: number, y: number): { lane: number; trackId: number; clipId: number; tick: number } | null => {
+    const lane = Math.floor((y + scrollY) / LANE_H)
+    const l = lanes[lane]
+    const top = lane * LANE_H - scrollY
+    if (l?.kind !== 'audio' || y < top + 3 || y > top + 3 + GRIP_H) return null
+    const s = getState().song
+    const m = tempoMap(s)
+    const sec = secAt(x)
+    const c = s.audioTracks.find((t) => t.id === l.id)?.clips.find((c) => sec >= m.tickToSec(c.tick) && sec <= m.tickToSec(c.tick) + c.duration)
+    return c ? { lane, trackId: l.id, clipId: c.id, tick: c.tick } : null
+  }
 
   const st = getState()
   const map = tempoMap(song)
@@ -506,12 +534,41 @@ export function Timeline(): React.JSX.Element {
               getState().set({ tlRange: rangeFor(first, last, Math.min(r.from, t), Math.max(r.to, t), e.altKey) })
               return
             }
+            const grip = gripAt(x, y)
+            if (grip) {
+              getState().beginGesture()
+              drag.current = { kind: 'clip', x0: x, lane: grip.lane, trackId: grip.trackId, clipId: grip.clipId, tick0: grip.tick, base: getState().song, moved: false }
+              return
+            }
             drag.current = { kind: 'range', x0: x, lane0: lane, tick0: snapAt(x, e.altKey), moved: false, fine: e.altKey }
           }}
           onPointerMove={(e) => {
             const d = drag.current
-            if (d?.kind !== 'range') return
             const { x, y } = local(e)
+            const el = e.currentTarget
+            if (!d) {
+              const grip = gripAt(x, y)
+              el.style.cursor = grip ? 'grab' : ''
+              el.title = grip
+                ? songAudio(getState().song).includes(grip.trackId)
+                  ? 'Drag to move the song, with its stems, notes to sing, chords, lyrics and recreated parts (moves by beats; hold Alt to move freely)'
+                  : 'Drag to move this clip (moves by beats; hold Alt to move freely)'
+                : ''
+              return
+            }
+            if (d.kind === 'clip') {
+              if (!d.moved && Math.abs(x - d.x0) < 4) return
+              d.moved = true
+              el.style.cursor = 'grabbing'
+              const s = d.base
+              const m = tempoMap(s)
+              const beat = ticksPerBeat(s)
+              let ticks = m.secToTick(m.tickToSec(d.tick0) + secAt(x) - secAt(d.x0)) - d.tick0
+              ticks = e.altKey ? Math.round(ticks) : Math.round(ticks / beat) * beat
+              getState().apply(() => moveClip(s, d.trackId, d.clipId, ticks))
+              return
+            }
+            if (d.kind !== 'range') return
             if (!d.moved && Math.abs(x - d.x0) < 4) return
             d.moved = true
             getState().set({ tlRange: rangeFor(d.lane0, laneAt(y), d.tick0, snapAt(x, d.fine), d.fine) })
@@ -519,12 +576,22 @@ export function Timeline(): React.JSX.Element {
           onPointerUp={(e) => {
             const d = drag.current
             drag.current = null
-            if (d?.kind !== 'range' || d.moved) return
+            if (d?.kind === 'clip') {
+              getState().endGesture()
+              e.currentTarget.style.cursor = 'grab'
+              if (d.moved) return
+            } else if (d?.kind !== 'range' || d.moved) return
             // a click: the playhead goes there and the lane becomes the one you're working on
             const { x } = local(e)
             engine.seek(Math.max(0, secAt(x)))
             getState().set({ tlRange: null })
-            if (lanes[d.lane0]) activate(lanes[d.lane0])
+            const lane = lanes[d.kind === 'clip' ? d.lane : d.lane0]
+            if (lane) activate(lane)
+          }}
+          onLostPointerCapture={() => {
+            // the drag was taken away (the window lost focus): keep what was moved so far as one step
+            if (drag.current?.kind === 'clip') getState().endGesture()
+            drag.current = null
           }}
           onDoubleClick={(e) => {
             // straight into the notes, at this point of the song

@@ -109,3 +109,55 @@ export function FontPresets({ track }: { track: Track & { font: string } }): Rea
     </select>
   )
 }
+
+/** Every drum kit in the collection: the main soundfont's, then each other soundfont's. */
+export function KitChoice({ track }: { track: Track }): React.JSX.Element {
+  const library = useStore((s) => s.sfLibrary)
+  const sfName = useStore((s) => s.sfName)
+  const main = useStore((s) => s.sfPresets).filter((p) => p.drum)
+  const [kits, setKits] = useState<{ font: string; list: FontPreset[] }[]>([])
+  useEffect(() => {
+    let live = true
+    void designFonts()
+      .then((design) => {
+        const paths = [...new Set([...design, ...library.map((e) => e.path), BUILTIN_FONT])].filter((p) => !/\.dls$/i.test(p))
+        return Promise.all(paths.map(async (font) => ({ font, list: (await presetsOf(font)).filter((p) => p.drum) })))
+      })
+      .then((all) => live && setKits(all.filter((k) => k.list.length)))
+    return () => {
+      live = false
+    }
+  }, [library])
+  const value = `${track.font ?? ''}|${track.bank}:${track.program}`
+  const known = [...main.map((p) => `|${p.bank}:${p.program}`), ...kits.flatMap((k) => k.list.map((p) => `${k.font}|${p.bank}:${p.program}`))]
+  return (
+    <select
+      id={`kit-${track.id}`}
+      className="select grow"
+      value={value}
+      title="The drum kit this track plays, from any of your soundfonts"
+      aria-label="Drum kit"
+      onChange={(e) => {
+        const [font, preset] = e.target.value.split('|')
+        const [bank, program] = preset.split(':').map(Number)
+        choosePreset(track.id, true, bank, program, font || undefined)
+      }}
+    >
+      {!known.includes(value) && <option value={value}>{track.font ? `Kit in ${fontName(track.font)}` : `Standard kit${sfName ? ` (${sfName})` : ''}`}</option>}
+      {main.length > 0 && (
+        <optgroup label={`Main soundfont${sfName ? ` (${sfName})` : ''}`}>
+          {main.map((p) => (
+            <option key={`m${p.bank}:${p.program}`} value={`|${p.bank}:${p.program}`}>{p.name}</option>
+          ))}
+        </optgroup>
+      )}
+      {kits.map((k) => (
+        <optgroup key={k.font} label={fontName(k.font)}>
+          {k.list.map((p) => (
+            <option key={`${p.bank}:${p.program}`} value={`${k.font}|${p.bank}:${p.program}`}>{p.name}</option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  )
+}
