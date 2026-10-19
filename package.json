@@ -1,6 +1,6 @@
 {
   "name": "keyfall",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Falling-notes MIDI editor with soundfont playback",
   "main": "out/main/index.js",
   "scripts": {

@@ -342,8 +342,16 @@ export const HELP: HelpSection[] = [
   },
   {
     id: 'pitch-edit',
-    title: 'Editing vocal pitch by hand',
+    title: 'Editing vocal pitch and timing by hand',
     entries: [
+      {
+        q: 'Can I fix the timing of my singing?',
+        a: 'Yes. With Edit pitch on the stage on, drag a sung note up or down instead of sideways: its whole word moves later or earlier (notes joined by less than a short breath move together). Down is earlier.\n\nThe take is cut halfway through the silence either side of the word, so the gap it moves into is trimmed away: drag a late word down to close up the space before it. It stops just short of the next word rather than cutting into it, and the label shows how far it has moved. `Ctrl+Z` undoes it.'
+      },
+      {
+        q: 'Which way does a drag go, pitch or timing?',
+        a: 'Whichever way you move first. Start sideways and it changes pitch; start up or down and it moves the word in time. Let go and drag again to do the other.'
+      },
       {
         q: 'How do I move a sung note myself?',
         a: 'In the Vocals tab, click Edit pitch on the stage. Each note of the selected vocal track shows as a bar over the keys. Drag a bar left or right to move it to another note; it snaps to semitones.'

@@ -7,6 +7,15 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.2.1',
+    date: '19 October 2026',
+    notes: [
+      'Fix the timing of your singing: while editing vocals on the stage, drag a sung note up or down to move its whole word earlier or later. The silence it moves into is trimmed away, and it never cuts into the next word.',
+      'Clearer tuned vocals: the pitch shifter no longer dulls the treble (the slight muffle), and the Tone control resamples more cleanly.',
+      'Fewer playback blips: when a take finishes tuning, only the clips whose sound actually changed are swapped in.'
+    ]
+  },
+  {
     version: '0.2.0',
     date: '19 October 2026',
     notes: [
