@@ -1,20 +1,27 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { exportAllTracks, exportTrack, type TrackRef } from '../actions/export'
 import * as I from './icons'
 
-/** A menu pinned to the window under (or above) a button, so a scrolling panel can't cut it off. */
+/**
+ * A menu pinned to the window under (or above) a button. It's drawn at the top of the page: inside
+ * the side panel, whose blur makes it the frame for "fixed" things, it would open off-screen.
+ */
 function useFloatingMenu(): {
   open: { left: number; top: number } | null
   toggle: (e: React.MouseEvent<HTMLButtonElement>, height: number) => void
   close: () => void
   ref: React.RefObject<HTMLDivElement | null>
+  menuRef: React.RefObject<HTMLDivElement | null>
 } {
   const [open, setOpen] = useState<{ left: number; top: number } | null>(null)
   const ref = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
     const close = (e: Event): void => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(null)
+      const t = e.target as Node
+      if (!ref.current?.contains(t) && !menuRef.current?.contains(t)) setOpen(null)
     }
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') setOpen(null)
@@ -34,7 +41,7 @@ function useFloatingMenu(): {
     const below = r.bottom + 4 + height <= window.innerHeight
     setOpen({ left: Math.max(8, Math.min(r.right - 240, window.innerWidth - 248)), top: below ? r.bottom + 4 : Math.max(8, r.top - 4 - height) })
   }
-  return { open, toggle, close: () => setOpen(null), ref }
+  return { open, toggle, close: () => setOpen(null), ref, menuRef }
 }
 
 /** The download button on a track: note tracks as MIDI, MP3 or WAV; audio tracks as MP3 or WAV. */
@@ -50,22 +57,24 @@ export function TrackExportButton({ track, name }: { track: TrackRef; name: stri
       <button className="icon-btn small" title={`Export ${name} on its own`} aria-expanded={!!m.open} onClick={(e) => m.toggle(e, notes ? 150 : 115)}>
         <I.IconExport size={15} />
       </button>
-      {m.open && (
-        <div className="menu context" role="menu" style={m.open}>
-          <div className="menu-label">Export this track</div>
-          {notes && (
-            <button role="menuitem" onClick={run(() => void exportTrack(track, 'mid'))}>
-              MIDI <span className="kbd">notes</span>
+      {m.open &&
+        createPortal(
+          <div ref={m.menuRef} className="menu context track-export-menu" role="menu" style={m.open}>
+            <div className="menu-label">Export this track</div>
+            {notes && (
+              <button role="menuitem" onClick={run(() => void exportTrack(track, 'mid'))}>
+                MIDI <span className="kbd">notes</span>
+              </button>
+            )}
+            <button role="menuitem" onClick={run(() => void exportTrack(track, 'mp3'))}>
+              MP3 <span className="kbd">256 kbps</span>
             </button>
-          )}
-          <button role="menuitem" onClick={run(() => void exportTrack(track, 'mp3'))}>
-            MP3 <span className="kbd">256 kbps</span>
-          </button>
-          <button role="menuitem" onClick={run(() => void exportTrack(track, 'wav'))}>
-            WAV <span className="kbd">lossless</span>
-          </button>
-        </div>
-      )}
+            <button role="menuitem" onClick={run(() => void exportTrack(track, 'wav'))}>
+              WAV <span className="kbd">lossless</span>
+            </button>
+          </div>,
+          document.body
+        )}
     </div>
   )
 }
@@ -82,20 +91,22 @@ export function ExportAllTracksButton(): React.JSX.Element {
       <button className="btn" title="Save every track as its own file, into a folder you choose" aria-expanded={!!m.open} onClick={(e) => m.toggle(e, 150)}>
         <I.IconExport size={16} /> Export all tracks…
       </button>
-      {m.open && (
-        <div className="menu context" role="menu" style={m.open}>
-          <div className="menu-label">Every track into a folder</div>
-          <button role="menuitem" onClick={run(() => void exportAllTracks('midi+mp3'))}>
-            Note tracks as MIDI, audio as MP3
-          </button>
-          <button role="menuitem" onClick={run(() => void exportAllTracks('mp3'))}>
-            All as MP3 stems
-          </button>
-          <button role="menuitem" onClick={run(() => void exportAllTracks('wav'))}>
-            All as WAV stems <span className="kbd">lossless</span>
-          </button>
-        </div>
-      )}
+      {m.open &&
+        createPortal(
+          <div ref={m.menuRef} className="menu context track-export-menu" role="menu" style={m.open}>
+            <div className="menu-label">Every track into a folder</div>
+            <button role="menuitem" onClick={run(() => void exportAllTracks('midi+mp3'))}>
+              Note tracks as MIDI, audio as MP3
+            </button>
+            <button role="menuitem" onClick={run(() => void exportAllTracks('mp3'))}>
+              All as MP3 stems
+            </button>
+            <button role="menuitem" onClick={run(() => void exportAllTracks('wav'))}>
+              All as WAV stems <span className="kbd">lossless</span>
+            </button>
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

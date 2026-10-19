@@ -271,6 +271,19 @@ export async function runSelftest(arg: string): Promise<void> {
       // every track as its own WAV, read back: each should run the full song, and the vocal sit near the notes' level
       await exportAllTracks('wav', outDir)
       log('stems:', getState().toast?.text)
+      // the export button on a track, clicked the way a person would: its menu must open on screen
+      getState().set({ drawerOpen: true, drawerTab: 'mixer' })
+      await wait(400)
+      const exportBtn = document.querySelector<HTMLButtonElement>('.mix-row .track-export .icon-btn')
+      exportBtn?.click()
+      await wait(200)
+      const menu = document.querySelector('.track-export-menu')
+      const box = menu?.getBoundingClientRect()
+      const onScreen = !!box && box.width > 0 && box.left >= 0 && box.top >= 0 && box.right <= window.innerWidth && box.bottom <= window.innerHeight
+      log('track export button:', exportBtn ? 'found' : 'missing', '· menu', menu ? `open at ${Math.round(box!.left)},${Math.round(box!.top)} (${onScreen ? 'on screen' : 'OFF SCREEN'})` : 'did not open', '· items', menu ? [...menu.querySelectorAll('button')].map((b) => b.textContent?.trim()).join(' | ') : '')
+      await window.keyfall.selftestCapture(`${outDir}/window-track-export.png`)
+      exportBtn?.click()
+      getState().set({ drawerOpen: false })
       const clean = (s: string): string => s.replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, ' ').trim()
       const rms = (x: Float32Array): number => {
         let s = 0

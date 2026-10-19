@@ -7,6 +7,11 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.2.2',
+    date: '19 October 2026',
+    notes: ['Fixed: the export button on a track did nothing. Its menu (MIDI, MP3, WAV) was opening off the edge of the window; it now opens beside the button.']
+  },
+  {
     version: '0.2.1',
     date: '19 October 2026',
     notes: [
