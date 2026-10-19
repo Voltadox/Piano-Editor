@@ -8,6 +8,7 @@ import { wordAt, type Span } from '../model/vocalTiming'
 import { getTake } from '../audio/takes'
 import { pressKey, releaseKey } from '../audio/midiInput'
 import { livePitch, livePitchDelay } from '../audio/vocalRecorder'
+import { liveReading } from '../audio/liveVocal'
 import { process, tuneSettings, vocalLines, vocalNotes, type ClipNotes } from '../audio/vocals'
 import { HOP_SEC } from '../audio/pitch'
 import { melodyPitchAt } from '../model/guide'
@@ -43,6 +44,11 @@ type Drag =
 
 /** Your sung pitch for the stage, while it's shown or a vocal take is recording. */
 function livePitchFor(st: ReturnType<typeof getState>): { midi: number; target: number | null } | null {
+  // live autotune knows what's sung and the note it's tuning to
+  if (st.liveTune) {
+    const r = liveReading()
+    return r ? { midi: r.sung, target: Number.isNaN(r.target) ? null : r.target } : null
+  }
   if (!st.showPitch && !st.vocalRec) return null
   const midi = livePitch()
   if (midi === null) return null

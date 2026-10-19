@@ -6,6 +6,8 @@ import { tempoMap, ticksPerBar, ticksPerBeat, trackTimes } from '../model/song'
 import { addRecorded } from '../state/edit'
 import { savePref } from '../state/prefs'
 import { getState, useStore } from '../state/store'
+import { setHeardKey } from '../audio/liveVocal'
+import { LiveVocals } from './LiveVocals'
 
 const UPDATE_MS = 150
 /** How quickly older notes stop counting toward the key, in seconds. */
@@ -79,6 +81,7 @@ export function StudioPanel(): React.JSX.Element | null {
         m.streak = 0
         m.key = found
       }
+      setHeardKey(m.key)
       const { held } = studioInput()
       const now = recognizeChord(held)
       if (now) m.lastChord = now
@@ -135,6 +138,7 @@ export function StudioPanel(): React.JSX.Element | null {
           <span className="studio-tag">Studio</span>
           {checkbox}
         </div>
+        <LiveVocals />
       </div>
     )
   }
@@ -184,6 +188,7 @@ export function StudioPanel(): React.JSX.Element | null {
           <div className="studio-foot">Click to hear · Shift+click adds it at the playhead</div>
         </>
       )}
+      <LiveVocals />
     </div>
   )
 }

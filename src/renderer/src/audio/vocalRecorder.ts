@@ -109,6 +109,9 @@ export async function openMic(deviceId = ''): Promise<void> {
   mic = { stream, node, deviceId, inputLatency: settings?.latency ?? 0.01 }
 }
 
+/** The open microphone's stream, for live autotune. */
+export const micStream = (): MediaStream | null => mic?.stream ?? null
+
 export function closeMic(): void {
   if (!mic) return
   mic.stream.getTracks().forEach((t) => t.stop())

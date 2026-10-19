@@ -14,6 +14,7 @@ import { decodeWavMono, encodeWavMono } from './audio/wav'
 import { closeMic, loadRecorderWorklet, micLevel, openMic } from './audio/vocalRecorder'
 import { clipAudio, processAll, vocalLines, vocalNotes } from './audio/vocals'
 import { drawScene } from './view/draw'
+import { buildChain } from './audio/vocalChain'
 import { addSection, copyReferenceGroove, duplicateSection, generateDrums, moveSection } from './state/arrange'
 import { chordLabel, importReferenceAudio, keyLabel, setChordAt } from './actions/reference'
 import { findLyrics, listenTo, separateReference } from './actions/separate'
@@ -298,6 +299,39 @@ export async function runSelftest(arg: string): Promise<void> {
       await window.keyfall.selftestCapture(`${outDir}/window-track-export.png`)
       exportBtn?.click()
       getState().set({ drawerOpen: false })
+
+      // the Radio comms effect: a tone through it comes out, narrowed and within full scale
+      {
+        const off = new OfflineAudioContext(2, 48000, 48000)
+        const osc = off.createOscillator()
+        osc.frequency.value = 220
+        osc.type = 'sawtooth'
+        const lvl = off.createGain()
+        lvl.gain.value = 0.3
+        const chain = buildChain(off, 'radio', 0.8, 0.5)
+        osc.connect(lvl).connect(chain.input)
+        chain.output.connect(off.destination)
+        osc.start()
+        const r = (await off.startRendering()).getChannelData(0)
+        let peak = 0
+        let sum = 0
+        let bad = 0
+        for (const v of r) {
+          if (!Number.isFinite(v)) bad++
+          peak = Math.max(peak, Math.abs(v))
+          sum += v * v
+        }
+        log('radio comms effect: level', (20 * Math.log10(Math.sqrt(sum / r.length) + 1e-9)).toFixed(1), 'dBFS · peak', peak.toFixed(2), '· invalid', bad)
+      }
+
+      // live autotune in Studio mode: the worklet starts on the mic without an error
+      if (!getState().studio) toggleStudio()
+      getState().set({ liveTune: true })
+      await wait(1500)
+      log('live autotune: still on', getState().liveTune, '· error toast', getState().toast?.tone === 'error' ? getState().toast?.text : 'none', '· controls shown', !!document.querySelector('#live-speed'))
+      await window.keyfall.selftestCapture(`${outDir}/window-live.png`)
+      toggleStudio()
+      log('live autotune after closing Studio: on', getState().liveTune)
       const clean = (s: string): string => s.replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, ' ').trim()
       const rms = (x: Float32Array): number => {
         let s = 0

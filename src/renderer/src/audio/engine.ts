@@ -626,6 +626,11 @@ class Engine {
   }
 
 
+  /** Mixes a live source (the live-tuned mic) in with everything else. */
+  connectLive(node: AudioNode): void {
+    node.connect(this.master!)
+  }
+
   // ---------- auditioning ----------
 
   private snippet: AudioBufferSourceNode | null = null

@@ -2,7 +2,7 @@ import type { TuneEdit } from '../audio/pitch'
 
 /** Recorded audio in a song: vocal tracks made of clips, each clip holding one or more takes. */
 
-export type VocalPreset = 'clean' | 'dreamy' | 'underwater' | 'tape' | 'haze'
+export type VocalPreset = 'clean' | 'dreamy' | 'underwater' | 'tape' | 'haze' | 'radio'
 
 /** Which line a harmony voice follows, built from the piano's chords. */
 export type GuideVoice = 'root' | 'third' | 'fifth' | 'octave' | 'melody' | 'above' | 'below'
@@ -69,7 +69,8 @@ export const VOCAL_PRESETS: { id: VocalPreset; name: string; hint: string }[] = 
   { id: 'dreamy', name: 'Dreamy', hint: 'big plate reverb and a slow, dark delay' },
   { id: 'underwater', name: 'Underwater', hint: 'muffled low-pass with a slow chorus' },
   { id: 'tape', name: 'Lo-fi tape', hint: 'warm saturation, wobble and a narrow band' },
-  { id: 'haze', name: 'Haze', hint: 'washed-out reverb with doubled, widened voices' }
+  { id: 'haze', name: 'Haze', hint: 'washed-out reverb with doubled, widened voices' },
+  { id: 'radio', name: 'Radio comms', hint: 'a crackly squad radio, like in-game voice chat (think Arc Raiders)' }
 ]
 
 export const DEFAULT_TUNE: Tune = { mode: 'key', speed: 0.85, voice: 'root', centre: 57 }

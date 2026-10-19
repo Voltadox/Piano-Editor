@@ -257,6 +257,7 @@ export function viewClock(): ViewClock {
 
 export function toggleStudio(): void {
   const on = !getState().studio
-  getState().set({ studio: on, studioHint: null })
+  // live autotune belongs to Studio mode: closing it stops the mic
+  getState().set({ studio: on, studioHint: null, ...(on ? {} : { liveTune: false }) })
   savePref('studio', on)
 }

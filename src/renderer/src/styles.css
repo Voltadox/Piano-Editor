@@ -94,6 +94,14 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg3); paddin
 .chip strong { font-size: 15px; }
 .chip span { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 .studio-foot { font-size: 11px; color: var(--muted); }
+.studio { max-height: calc(100% - 28px); overflow-y: auto; }
+.live-vocals { display: grid; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.studio.compact .live-vocals { min-width: 270px; }
+.live-meter { height: 4px; border-radius: 2px; background: var(--bg0); overflow: hidden; }
+.live-meter div { height: 100%; width: 0; background: var(--accent); }
+.live-readout { font-family: var(--mono); font-size: 12px; }
+.live-tip { margin: 0; font-size: 11px; line-height: 1.4; color: var(--muted); }
+.live-vocals .prow { grid-template-columns: 58px 1fr; }
 
 .menu-wrap { position: relative; }
 .menu { position: absolute; right: 0; top: 36px; z-index: 30; min-width: 270px; padding: 6px; border-radius: 10px; background: var(--bg2); border: 1px solid var(--line); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); display: grid; }
@@ -216,7 +224,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg3); paddin
 .track-export .menu { font-weight: 400; }
 .export-all-row { display: grid; gap: 6px; padding: 12px 10px 16px; }
 .export-all-row .btn { justify-self: start; display: inline-flex; align-items: center; gap: 7px; }
-.export-all-row .meta { font-size: 12px; line-height: 1.4; }
+.export-all-row .meta, .version-line .version-result { font-family: inherit; font-size: 12px; line-height: 1.4; white-space: normal; }
 .mix-ctl { display: grid; grid-template-columns: 48px 1fr 42px; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
 .mix-ctl .range { width: 100%; }
 

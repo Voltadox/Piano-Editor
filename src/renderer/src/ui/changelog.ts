@@ -7,6 +7,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.3.0',
+    date: '19 October 2026',
+    notes: [
+      'Live autotune: in Studio mode, tick Autotune my mic live and your voice is tuned as you sing, mixed with the piano (about 30 ms behind). Tune to the key, to the chord you’re holding on the keyboard, or to the reference song’s melody. Made for streaming: capture Keyfall in OBS and the piano and tuned voice come through together.',
+      'Voice effects live: Pitch (±12 semitones), Tone, any vocal preset and a level.',
+      'New Radio comms effect: a crackly squad-radio voice, like in-game chat. Live and on recorded vocals.',
+      'Fixed: the note beside Export all tracks spilled off the side of the Mixer.'
+    ]
+  },
+  {
     version: '0.2.4',
     date: '19 October 2026',
     notes: [

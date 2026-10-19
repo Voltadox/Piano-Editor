@@ -222,8 +222,20 @@ export const HELP: HelpSection[] = [
   },
   {
     id: 'studio',
-    title: 'Studio mode and chord ideas',
+    title: 'Studio mode, chord ideas and live autotune',
     entries: [
+      {
+        q: 'Can I sing autotuned live, for a stream?',
+        a: 'Yes. Open Studio mode (`S`) and tick Autotune my mic live in its panel. Your mic is tuned as you sing and mixed with the piano, about 30 ms behind your voice. Use headphones, or the speakers feed back into the mic.\n\nOn a stream, add Keyfall as an Application Audio Capture source in OBS: the piano and your tuned voice come through together. Closing Studio mode turns live autotune off.'
+      },
+      {
+        q: 'What can live autotune tune to?',
+        a: '- Key: the key Studio hears you playing, or the song\'s key.\n- My chords: the notes you\'re holding on the keyboard, so your voice lands on your own chord; between chords it keeps the last one.\n- Song: the reference song\'s melody at the playhead, while it plays (after separating its vocals).\n\nRetune works as on vocal tracks: Natural keeps your vibrato, Hard snaps flat. Pitch moves your voice up or down by semitones, Tone makes it deeper or airier, and Effect adds any vocal preset, Radio comms included. Level sets your voice against the piano.'
+      },
+      {
+        q: 'What is the Radio comms effect?',
+        a: 'A crackly squad-radio voice, like in-game voice chat (think Arc Raiders): a narrow phone band, driven hard, with a little digital grit, squashed flat. Amount blends it with your clean voice. It works live in Studio mode and on recorded vocal tracks.'
+      },
       {
         q: 'What is Studio mode?',
         a: 'Press `S`. What you play on your keyboard rises from the keys like a live trail, which is handy for jamming and working things out.'

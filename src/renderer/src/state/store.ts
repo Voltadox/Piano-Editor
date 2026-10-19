@@ -3,6 +3,7 @@ import { demoSong, type Snap, type Song } from '../model/song'
 import type { GuideVoice } from '../model/audio'
 import { DEFAULT_THEME, type Theme } from '../view/theme'
 import { loadPref } from './prefs'
+import { DEFAULT_LIVE, type LiveSettings } from '../model/live'
 
 export type Tool = 'select' | 'draw'
 
@@ -73,6 +74,9 @@ export interface EditorState {
   vocalRec: VocalRecording | null
   /** show the pitch you're singing on the keys (opens the microphone) */
   showPitch: boolean
+  /** live autotune on the mic, in Studio mode */
+  liveTune: boolean
+  live: LiveSettings
   /** the active vocal track's sung notes are shown on the stage to move by hand */
   pitchEdit: boolean
   /** right-click menu for one sung note while editing pitch */
@@ -167,6 +171,8 @@ export const useStore = create<EditorState>()((set, get) => ({
   vocalRec: null,
   showPitch: false,
   pitchEdit: false,
+  liveTune: false,
+  live: { ...DEFAULT_LIVE, ...loadPref<Partial<LiveSettings>>('live', {}) },
   vocalNoteMenu: null,
   beatPattern: -1,
   playing: false,

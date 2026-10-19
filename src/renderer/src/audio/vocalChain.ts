@@ -75,6 +75,18 @@ function filter(ctx: BaseAudioContext, type: BiquadFilterType, freq: number, q =
   return f
 }
 
+/** Rounds the wave to a few levels: the gritty, low-bit sound of a cheap digital radio. */
+function quantizer(ctx: BaseAudioContext, levels: number): WaveShaperNode {
+  const ws = ctx.createWaveShaper()
+  const curve = new Float32Array(4096)
+  for (let i = 0; i < curve.length; i++) {
+    const x = (i / (curve.length - 1)) * 2 - 1
+    curve[i] = Math.round(x * levels) / levels
+  }
+  ws.curve = curve
+  return ws
+}
+
 function saturator(ctx: BaseAudioContext, drive: number): WaveShaperNode {
   const ws = ctx.createWaveShaper()
   const curve = new Float32Array(1024)
@@ -157,6 +169,27 @@ export function buildChain(ctx: BaseAudioContext, preset: VocalPreset, amount: n
       hp.connect(lowCut).connect(sat).connect(band).connect(wow.input)
       wow.output.connect(dry)
       send(reverb(ctx, 1.8, 0.8, 0.02), 0.3 * a, band)
+      break
+    }
+    case 'radio': {
+      // a squad radio: a narrow phone band with a honky middle, driven hard, a little digital grit,
+      // squashed flat so it stays loud and even
+      dry.gain.value = 1 - a
+      hp.connect(dry)
+      const band = filter(ctx, 'highpass', 320 + 260 * a, 0.9)
+      const honk = ctx.createBiquadFilter()
+      honk.type = 'peaking'
+      honk.frequency.value = 1700
+      honk.Q.value = 1
+      honk.gain.value = 4 + 4 * a
+      const top = filter(ctx, 'lowpass', 3800 - 1000 * a, 1.1)
+      const squash = ctx.createDynamicsCompressor()
+      squash.threshold.value = -30
+      squash.ratio.value = 8
+      squash.attack.value = 0.002
+      squash.release.value = 0.08
+      const wet = gain(ctx, 0.9 * Math.max(0.15, a))
+      hp.connect(band).connect(honk).connect(saturator(ctx, 2 + 6 * a)).connect(quantizer(ctx, Math.round(48 - 32 * a))).connect(top).connect(squash).connect(wet).connect(output)
       break
     }
     case 'haze': {
