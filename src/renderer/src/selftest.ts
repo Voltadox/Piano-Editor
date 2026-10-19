@@ -17,6 +17,8 @@ import { drawScene } from './view/draw'
 import { buildChain } from './audio/vocalChain'
 import { addSection, copyReferenceGroove, duplicateSection, generateDrums, moveSection } from './state/arrange'
 import { chordLabel, importReferenceAudio, keyLabel, setChordAt } from './actions/reference'
+import { askImportChoices } from './ui/ImportDialog'
+import { fitChoices, fitToBars } from './actions/fitBars'
 import { findLyrics, listening, listenTo, separateReference } from './actions/separate'
 import { readFont, remakeBacking } from './actions/remake'
 import { placed, soundSlot } from './audio/fontSlots'
@@ -33,7 +35,7 @@ const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms)
 export async function runSelftest(arg: string): Promise<void> {
   const [sfPath, outDir, realSong, mode] = arg.split('|')
   if (realSong) {
-    await realSongCheck(sfPath, outDir, realSong, mode === 'remake')
+    await realSongCheck(sfPath, outDir, realSong, mode)
     window.keyfall.selftestDone()
     return
   }
@@ -537,6 +539,68 @@ export async function runSelftest(arg: string): Promise<void> {
       await wait(900)
       await window.keyfall.selftestCapture(`${outDir}/window-reference.png`)
       getState().set({ drawerOpen: false })
+
+      // bringing a song in with nothing ticked adds the song and its tempo, and nothing else
+      const none = { key: false, chords: false, chordPad: false, sections: false, melody: false, harmonies: false, lyrics: false, drums: false, bass: false, keys: false }
+      getState().loadSong(emptySong(), 'Choices test', null)
+      const before = getState().song
+      await importReferenceAudio('synthetic-96bpm.wav', buf, none)
+      const bare = getState().song
+      log(
+        'import nothing ticked: tracks',
+        before.tracks.length,
+        '->',
+        bare.tracks.length,
+        '· audio tracks',
+        bare.audioTracks.map((tr) => tr.kind ?? 'vocal').join(','),
+        '· chords',
+        bare.chords.length,
+        '· sections',
+        bare.sections.length,
+        '· key',
+        bare.key ? keyLabel(bare.key.tonic, bare.key.minor) : 'unset',
+        '· tempo',
+        bare.tempos[0].bpm.toFixed(1)
+      )
+      // the checklist, shown while picking
+      const asked = askImportChoices('Shadows Whisper Low.mp3')
+      await wait(400)
+      await window.keyfall.selftestCapture(`${outDir}/window-import-choices.png`)
+      const dlg = document.querySelector('.vdialog.import')
+      const box = dlg?.getBoundingClientRect()
+      log(
+        'import checklist:',
+        dlg?.querySelector('h2')?.textContent,
+        '· ticks',
+        [...(dlg?.querySelectorAll('input[type=checkbox]') ?? [])].map((i) => `${i.id.replace('import-', '')}${(i as HTMLInputElement).checked ? '✓' : ''}${(i as HTMLInputElement).disabled ? '(off)' : ''}`).join(' '),
+        '· size',
+        box && `${Math.round(box.width)}×${Math.round(box.height)} in ${window.innerWidth}×${window.innerHeight}`
+      )
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      log('import checklist: Esc cancels ->', await asked)
+    }
+
+    // a loop played freely at 96 BPM in a 120 BPM song, starting 3.2 s in: fit it to 4 bars
+    {
+      const s = emptySong()
+      const tr = newTrack(s, 'Loop')
+      const ppq = s.ppq
+      const beat96 = 60 / 96
+      let jitter = 3
+      const wobble = (): number => ((jitter = (jitter * 16807) % 2147483647) / 2147483647 - 0.5) * 0.04
+      for (let bar = 0; bar < 4; bar++) {
+        const at = 3.2 + bar * 4 * beat96 + wobble()
+        const len = bar === 3 ? 3.2 * beat96 : 3.9 * beat96 // the last chord let go most of a beat early
+        for (const p of [48, 55, 60, 64]) tr.notes.push({ id: newId(), pitch: p + (bar % 2) * 2, tick: Math.round(at * 2 * ppq), dur: Math.round(len * 2 * ppq), vel: 80 })
+      }
+      getState().loadSong({ ...s, tracks: [tr] }, 'Fit test', null)
+      selectAll()
+      const offered = fitChoices().map((f) => `${f.bars}:${f.bpm}`)
+      fitToBars(4)
+      const fitted = getState().song
+      const bar = ticksPerBar(fitted)
+      const starts = [...new Set(fitted.tracks[0].notes.map((n) => n.tick))].map((t) => (t / bar + 1).toFixed(2))
+      log('fit to bars: offered', offered.join(' '), '· tempo', fitted.tempos[0].bpm, '· chords start at bars', starts.join(' '), '· loop bars', getState().loop && `${getState().loop!.start / bar + 1}-${getState().loop!.end / bar}`, '·', getState().toast?.text)
     }
 
     // recording into a brand-new, empty song must keep running (with its count-in) until stopped
@@ -593,7 +657,8 @@ async function grabFrame(videoPath: string, pngPath: string, at: number): Promis
  * analysis, vocal separation and the sung notes, with a screenshot of the result. With a fourth,
  * `remake`, recreates the backing track instead of reading the lyrics, and saves it as MP3s.
  */
-async function realSongCheck(sfPath: string, outDir: string, path: string, remake = false): Promise<void> {
+async function realSongCheck(sfPath: string, outDir: string, path: string, mode = ''): Promise<void> {
+  const remake = mode === 'remake'
   try {
     const sf = await window.keyfall.readFile(sfPath)
     if (sf) await loadSoundfontBytes(sf.data.buffer.slice(sf.data.byteOffset, sf.data.byteOffset + sf.data.byteLength) as ArrayBuffer, sf.name, null)
@@ -603,6 +668,21 @@ async function realSongCheck(sfPath: string, outDir: string, path: string, remak
     const buf = await engine.ctx!.decodeAudioData(f.data.buffer.slice(f.data.byteOffset, f.data.byteOffset + f.data.byteLength) as ArrayBuffer)
     getState().loadSong(emptySong(), 'Real song', null)
     const t0 = performance.now()
+    if (mode === 'bass') {
+      // just the bass: opening the song with only Bass ticked
+      const toasts: string[] = []
+      const unsub = useStore.subscribe((st, prev) => {
+        if (st.toast && st.toast !== prev.toast) toasts.push(st.toast.text)
+      })
+      const before = getState().song.tracks.map((t) => t.name)
+      await importReferenceAudio(f.name, buf, { key: false, chords: false, chordPad: false, sections: false, melody: false, harmonies: false, lyrics: false, drums: false, bass: true, keys: false })
+      unsub()
+      const s = getState().song
+      log('bass only: done in', ((performance.now() - t0) / 1000).toFixed(1), 's · tracks', before.join(','), '->', s.tracks.map((t) => `${t.name} (${t.notes.length})`).join(', '))
+      log('bass only: audio', s.audioTracks.map((t) => `${t.name}${t.muted ? ' [muted]' : ''}`).join(', '), '· chords', s.chords.length, '· sections', s.sections.length, '· key', s.key ? keyLabel(s.key.tonic, s.key.minor) : 'unset')
+      log('bass only: messages', toasts.join(' || '))
+      return
+    }
     await importReferenceAudio(f.name, buf)
     const song = getState().song
     log('real song:', f.name, buf.duration.toFixed(1), 's · analysed in', ((performance.now() - t0) / 1000).toFixed(1), 's ·', getState().toast?.text)

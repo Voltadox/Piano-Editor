@@ -82,6 +82,10 @@ export const HELP: HelpSection[] = [
         a: 'Type a new BPM in the tempo box in the top bar and press Enter, and pick the time signature from the menu beside it. A * after BPM means the file has tempo changes; the box sets the starting tempo.'
       },
       {
+        q: 'I played a loop without a click. How do I make it fit the bars?',
+        a: 'Select the loop\'s notes (drag a box round them, or click the track in the Tracks tab), right-click, and pick a length under Fit to bars, such as 4 bars. Each choice shows the tempo it gives. Keyfall works out the tempo you played at from where the chords start, sets it, and moves the bar lines so the loop starts on a bar line and fills exactly that many bars. It sounds exactly the same; only the grid moves. The loop then plays round, and Ctrl+Z puts it back.\n\nIt\'s also in the Edit menu. Songs following a reference song keep the reference\'s tempo instead.'
+      },
+      {
         q: 'Can I hear notes by clicking the keys?',
         a: 'Yes. Click the keys at the bottom of the stage to hear them, and drag across them to play a run.'
       }
@@ -259,6 +263,10 @@ export const HELP: HelpSection[] = [
         a: 'Open one of your demos or a song you are learning (MP3, WAV, M4A…) with Open a song…. Keyfall listens for its tempo, bar lines, key, chords, sections and drum hits, then lines your song up with it: the tempo map follows its downbeats, chord names appear on the left of the stage, a muted Chords pad can play them, and sections are marked.'
       },
       {
+        q: 'Can I choose what opening a song adds?',
+        a: 'Yes. After you pick the song, a list asks what to bring in, and nothing you leave unticked is added:\n- From listening: the key, chord names, the Chords pad track and sections.\n- From the vocals: the melody and harmonies to sing, and the lyrics.\n- Backing track as MIDI: drums, bass and keys.\n\nThe song itself and its tempo always come in, so whatever you pick lines up with it. Your ticks are remembered for next time.'
+      },
+      {
         q: 'The bars are twice as long (or short) as they should be.',
         a: 'Use ×2 or ÷2 next to Tempo in the Reference tab to fix half or double time.'
       },
@@ -303,8 +311,12 @@ export const HELP: HelpSection[] = [
         a: 'Notes land where the song plays them, feel included. To straighten a part, click it in the Tracks tab to select all of its notes, pick a snap value, and press `Q`.'
       },
       {
+        q: 'Can I take just one part, like the bass?',
+        a: 'Yes. When you open a song, tick only Bass under Backing track as MIDI. Keyfall then adds just a Bass (remake) track: no chords, sections, notes to sing or other parts. To add a part later, tick it under Backing track in the Reference tab and click Recreate; the parts you already have stay as they are.'
+      },
+      {
         q: 'Can it recreate the backing automatically?',
-        a: 'Tick Recreate the backing track whenever I open a song (in the Reference tab). Opening a song then separates the vocals and recreates the backing in one go.'
+        a: 'Yes. Tick the parts you want under Backing track as MIDI when you open a song. Keyfall separates the vocals and recreates them in one go, and remembers your ticks for next time.'
       },
       {
         q: 'Can it make a beat that matches the song?',

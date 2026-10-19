@@ -43,10 +43,11 @@ const busy = (label: string, progress: number): void => getState().set({ busy: {
 
 /**
  * Splits the reference into vocals and instrumental with the separation model (downloaded the
- * first time), then turns the vocal into notes to sing. Each becomes a track; the reference keeps
- * playing until you choose to listen to the instrumental or the vocals instead.
+ * first time), then turns the vocal into notes to sing (the melody and harmonies, as wanted). Each
+ * becomes a track; the reference keeps playing until you choose to listen to the instrumental or
+ * the vocals instead.
  */
-export async function separateReference(): Promise<void> {
+export async function separateReference(want: { melody: boolean; harmonies: boolean } = { melody: true, harmonies: true }): Promise<void> {
   const { song } = getState()
   const ref = referenceTrack(song)
   const clip = ref?.clips[0]
@@ -63,21 +64,29 @@ export async function separateReference(): Promise<void> {
     const vocals = await window.keyfall.separateVocals(l, r)
     const instL = l.map((v, i) => v - vocals.left[i])
     const instR = r.map((v, i) => v - vocals.right[i])
-    busy('Finding the notes that are sung', 0.92)
     const mono = vocals.left.map((v, i) => (v + vocals.right[i]) / 2)
-    const notes = await sungNotes(mono, SEPARATION_RATE)
-    busy('Listening for harmonies', 0.96)
-    const [forNotes] = await resample([mono], SEPARATION_RATE, 22050)
-    const heard = await window.keyfall.transcribeNotes(forNotes)
-    const harmony = harmonyLines(heard, notes)
+    let notes: SungNote[] = []
+    let harmony: { above: SungNote[]; below: SungNote[] } = { above: [], below: [] }
+    // harmonies are found against the lead, so it's needed for either
+    if (want.melody || want.harmonies) {
+      busy('Finding the notes that are sung', 0.92)
+      notes = await sungNotes(mono, SEPARATION_RATE)
+    }
+    if (want.harmonies) {
+      busy('Listening for harmonies', 0.96)
+      const [forNotes] = await resample([mono], SEPARATION_RATE, 22050)
+      harmony = harmonyLines(await window.keyfall.transcribeNotes(forNotes), notes)
+    }
     const vocalTake = addTake(vocals.left, SEPARATION_RATE, vocals.right)
     const instTake = addTake(instL, SEPARATION_RATE, instR)
-    getState().apply((s) => withStems(s, vocalTake, instTake, notes, harmony))
+    getState().apply((s) => withStems(s, vocalTake, instTake, want.melody ? notes : null, want.harmonies ? harmony : null))
     getState().set({ busy: null })
     const h = harmony.above.length + harmony.below.length
-    getState().notify(
-      `Separated the vocals: ${notes.length} sung notes${h ? `, and harmonies (${harmony.above.length} notes above the lead, ${harmony.below.length} below)` : ', no harmonies heard'}. Choose what to listen to in the Reference tab.`
-    )
+    const found = [
+      ...(want.melody ? [`${notes.length} sung notes`] : []),
+      ...(want.harmonies ? [h ? `harmonies (${harmony.above.length} notes above the lead, ${harmony.below.length} below)` : 'no harmonies heard'] : [])
+    ]
+    getState().notify(`Separated the vocals${found.length ? `: ${found.join(', ')}` : ''}. Choose what to listen to in the Reference tab.`)
   } catch (err) {
     getState().set({ busy: null })
     getState().notify(`Couldn't separate the vocals. ${err instanceof Error ? err.message : ''}`, 'error')
@@ -87,8 +96,11 @@ export async function separateReference(): Promise<void> {
   }
 }
 
-/** Adds (or replaces) the vocal and instrumental stems, the "Melody" notes to sing and any harmony lines. */
-function withStems(song: Song, vocalTake: string, instTake: string, sung: SungNote[], harmony: { above: SungNote[]; below: SungNote[] }): Song {
+/**
+ * Adds (or replaces) the vocal and instrumental stems, the "Melody" notes to sing and any harmony
+ * lines. Lines not wanted (null) aren't added, and an earlier separation's are taken away.
+ */
+function withStems(song: Song, vocalTake: string, instTake: string, sung: SungNote[] | null, harmony: { above: SungNote[]; below: SungNote[] } | null): Song {
   const ref = referenceTrack(song)!
   const clip = ref.clips[0]
   const stem = (id: number | undefined, name: string, color: string, takeId: string) => ({
@@ -121,15 +133,19 @@ function withStems(song: Song, vocalTake: string, instTake: string, sung: SungNo
         })
     )
   let tracks = song.tracks
-  const upsert = (role: NonNullable<Track['role']>, name: string, color: string, list: SungNote[]): void => {
+  const upsert = (role: NonNullable<Track['role']>, name: string, color: string, list: SungNote[] | undefined): void => {
     const existing = tracks.find((t) => t.role === role)
+    if (!list) {
+      tracks = tracks.filter((t) => t.role !== role)
+      return
+    }
     const notes = place(list)
     if (existing) tracks = tracks.map((t) => (t.id === existing.id ? { ...t, notes } : t))
     else if (notes.length) tracks = [...tracks, { ...newTrack({ ...song, tracks }, name), role, silent: true, color, notes }]
   }
-  upsert('melody', 'Melody (to sing)', '#fbd38d', sung)
-  upsert('harmony-above', 'Harmony above (to sing)', '#b794f4', harmony.above)
-  upsert('harmony-below', 'Harmony below (to sing)', '#81e6d9', harmony.below)
+  upsert('melody', 'Melody (to sing)', '#fbd38d', sung ?? undefined)
+  upsert('harmony-above', 'Harmony above (to sing)', '#b794f4', harmony?.above)
+  upsert('harmony-below', 'Harmony below (to sing)', '#81e6d9', harmony?.below)
   return { ...song, audioTracks, tracks, reference: { ...song.reference!, stems: { vocals: vocals.id, instrumental: inst.id } } }
 }
 

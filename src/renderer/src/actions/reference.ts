@@ -4,10 +4,46 @@ import { engine } from '../audio/engine'
 import { addTake } from '../audio/takes'
 import { newAudioTrack } from '../model/audio'
 import type { Analysis } from '../model/analysis'
-import { newId, newTrack, PALETTE, sortNotes, TempoMap, ticksPerBar, ticksPerBeat, type ChordMark, type Note, type Song, type Tempo, type Track } from '../model/song'
+import { newId, newTrack, PALETTE, sortNotes, TempoMap, ticksPerBar, ticksPerBeat, type ChordMark, type Note, type RemakePart, type Song, type Tempo, type Track } from '../model/song'
 import { getState, useStore } from '../state/store'
-import { loadPref } from '../state/prefs'
+import { loadPref, savePref } from '../state/prefs'
+import { askImportChoices } from '../ui/ImportDialog'
 import { remakeBacking } from './remake'
+import { findLyrics, separateReference } from './separate'
+
+/**
+ * What opening a song brings in. The song itself and its tempo always come (so whatever else is
+ * picked lines up with it); everything else is only added when ticked.
+ */
+export interface ImportChoices {
+  key: boolean
+  /** the chord lane: chord names on the stage */
+  chords: boolean
+  /** the muted Chords pad track playing the chord lane */
+  chordPad: boolean
+  sections: boolean
+  /** notes to sing, from the separated vocals */
+  melody: boolean
+  harmonies: boolean
+  lyrics: boolean
+  /** parts of the backing track, recreated as MIDI */
+  drums: boolean
+  bass: boolean
+  keys: boolean
+}
+
+export const REMAKE_PARTS: RemakePart[] = ['drums', 'bass', 'keys']
+
+/** The choices last used (opening a song used to bring in the layout, and the backing if asked). */
+export function importChoices(): ImportChoices {
+  const remake = loadPref('remakeOnOpen', false)
+  const defaults: ImportChoices = { key: true, chords: true, chordPad: true, sections: true, melody: false, harmonies: false, lyrics: false, drums: remake, bass: remake, keys: remake }
+  return { ...defaults, ...loadPref<Partial<ImportChoices>>('importChoices', {}) }
+}
+
+export function saveImportChoices(c: ImportChoices): void {
+  savePref('importChoices', c)
+}
 
 /**
  * Reference mode: bring in a finished song, listen to it, and lay the song out to match it: the
@@ -53,6 +89,8 @@ function runAnalysis(pcm: Float32Array, onProgress: (p: number) => void): Promis
 export async function importReference(): Promise<void> {
   const f = await window.keyfall.openFile('audio')
   if (!f) return
+  const choices = await askImportChoices(f.name)
+  if (!choices) return
   await engine.init()
   busy(`Opening ${f.name}`, 0)
   let buf: AudioBuffer
@@ -63,11 +101,15 @@ export async function importReference(): Promise<void> {
     getState().notify(`Couldn't read ${f.name} as audio. Try an MP3 or WAV.`, 'error')
     return
   }
-  await importReferenceAudio(f.name, buf)
+  await importReferenceAudio(f.name, buf, choices)
 }
 
-/** Imports decoded audio as the song's reference: analyses it and lays the song out to match. */
-export async function importReferenceAudio(name: string, buf: AudioBuffer): Promise<void> {
+/**
+ * Imports decoded audio as the song's reference: analyses it and lays the song out to match, then
+ * adds only what was chosen. Notes to sing, lyrics and the backing parts need the vocals
+ * separated, so that happens first when any of them is wanted.
+ */
+export async function importReferenceAudio(name: string, buf: AudioBuffer, choices = importChoices()): Promise<void> {
   try {
     busy(`Listening to ${name}`, 0.05)
     const mono = await forAnalysis(buf)
@@ -75,17 +117,29 @@ export async function importReferenceAudio(name: string, buf: AudioBuffer): Prom
     const left = buf.getChannelData(0).slice()
     const right = buf.numberOfChannels > 1 ? buf.getChannelData(1).slice() : undefined
     const takeId = addTake(left, buf.sampleRate, right)
-    getState().apply((song) => applyReference(song, name, takeId, buf.duration, analysis))
+    getState().apply((song) => applyReference(song, name, takeId, buf.duration, analysis, choices))
     getState().set({ busy: null, drawerOpen: true, drawerTab: 'reference' })
     const { song } = getState()
-    getState().notify(
-      `${name}: ${Math.round(analysis.bpm)} BPM, ${song.key ? keyLabel(song.key.tonic, song.key.minor) : 'key unclear'}, ${song.chords.filter((c) => c.root >= 0).length} chord changes, ${song.sections.length} sections`
-    )
-    if (loadPref('remakeOnOpen', false)) void remakeBacking()
+    const heard = [`${Math.round(analysis.bpm)} BPM`]
+    if (choices.key) heard.push(song.key ? keyLabel(song.key.tonic, song.key.minor) : 'key unclear')
+    if (choices.chords) heard.push(`${song.chords.filter((c) => c.root >= 0).length} chord changes`)
+    if (choices.sections) heard.push(`${song.sections.length} sections`)
+    getState().notify(`${name}: ${heard.join(', ')}`)
   } catch (err) {
     getState().set({ busy: null })
     getState().notify(`Couldn't analyse ${name}. ${err instanceof Error ? err.message : ''}`, 'error')
+    return
   }
+  const parts = REMAKE_PARTS.filter((p) => choices[p])
+  if (!choices.melody && !choices.harmonies && !choices.lyrics && !parts.length) return
+  // the lyrics are timed by the sung notes, so they're found even when they aren't kept
+  await separateReference({ melody: choices.melody || choices.lyrics, harmonies: choices.harmonies })
+  if (!getState().song.reference?.stems) return
+  if (choices.lyrics) {
+    await findLyrics()
+    if (!choices.melody) getState().apply((s) => ({ ...s, tracks: s.tracks.filter((t) => t.role !== 'melody') }))
+  }
+  if (parts.length) await remakeBacking(parts)
 }
 
 const NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
@@ -97,7 +151,14 @@ export const chordLabel = (c: { root: number; minor: boolean }): string => (c.ro
  * if the song is steady, otherwise a tempo per bar. Any pickup before the first downbeat gets
  * whole bars of its own, so bar numbers stay musical.
  */
-export function applyReference(song: Song, name: string, takeId: string, duration: number, a: Analysis): Song {
+export function applyReference(
+  song: Song,
+  name: string,
+  takeId: string,
+  duration: number,
+  a: Analysis,
+  keep: Pick<ImportChoices, 'key' | 'chords' | 'chordPad' | 'sections'> = { key: true, chords: true, chordPad: true, sections: true }
+): Song {
   const ppq = song.ppq
   const timeSig: [number, number] = [4, 4]
   const barTicks = ppq * 4
@@ -147,9 +208,9 @@ export function applyReference(song: Song, name: string, takeId: string, duratio
     tempos,
     timeSig,
     audioTracks,
-    chords,
-    sections,
-    key: a.key ? { tonic: a.key.tonic, minor: a.key.minor } : song.key,
+    chords: keep.chords ? chords : song.chords,
+    sections: keep.sections ? sections : song.sections,
+    key: keep.key && a.key ? { tonic: a.key.tonic, minor: a.key.minor } : song.key,
     reference: {
       file: name,
       trackId: refTrack.id,
@@ -161,7 +222,8 @@ export function applyReference(song: Song, name: string, takeId: string, duratio
       barEnergy: [...new Array(lead).fill(0.2), ...a.barEnergy]
     }
   }
-  return withChordPad(next)
+  // a pad already in the song keeps following the lane
+  return keep.chordPad || next.tracks.some((t) => t.role === 'chords') ? withChordPad(next) : next
 }
 
 /** Root-position chord voicings for the chord lane, with the root an octave below. */

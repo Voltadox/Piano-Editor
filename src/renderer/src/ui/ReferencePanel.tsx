@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { engine } from '../audio/engine'
-import { addChordAt, importReference, keyLabel, referenceTrack, scaleTempo } from '../actions/reference'
+import { addChordAt, importReference, keyLabel, referenceTrack, REMAKE_PARTS, scaleTempo } from '../actions/reference'
 import { setPlaybackRate } from '../actions/transport'
 import { STYLES } from '../model/beatgen'
 import { tempoMap } from '../model/song'
@@ -24,22 +24,28 @@ const SPEEDS = [1, 0.9, 0.8, 0.75, 0.7, 0.6, 0.5]
 /** How near a sound came to the song's, in words. */
 const closeness = (c: SoundChoice): string => (c.distance < 0.45 ? 'close' : c.distance < 0.75 ? 'fair' : 'rough')
 
-/** Whether opening a song goes on to recreate its backing track. */
-function RemakeOnOpen(): React.JSX.Element {
-  const [on, setOn] = useState(() => loadPref('remakeOnOpen', false))
+const PART_LABELS: Record<RemakePart, string> = { drums: 'Drums', bass: 'Bass', keys: 'Keys' }
+
+/** Which parts of the backing track to recreate, remembered between songs. */
+function useRemakeParts(): [RemakePart[], (p: RemakePart, on: boolean) => void] {
+  const [parts, setParts] = useState<RemakePart[]>(() => loadPref<RemakePart[]>('remakeParts', REMAKE_PARTS))
+  const toggle = (p: RemakePart, on: boolean): void => {
+    const next = REMAKE_PARTS.filter((x) => (x === p ? on : parts.includes(x)))
+    setParts(next)
+    savePref('remakeParts', next)
+  }
+  return [parts, toggle]
+}
+
+function PartTicks({ parts, toggle }: { parts: RemakePart[]; toggle: (p: RemakePart, on: boolean) => void }): React.JSX.Element {
   return (
-    <label className="check">
-      <input
-        id="ref-remake-on-open"
-        type="checkbox"
-        checked={on}
-        onChange={(e) => {
-          setOn(e.target.checked)
-          savePref('remakeOnOpen', e.target.checked)
-        }}
-      />{' '}
-      Recreate the backing track whenever I open a song
-    </label>
+    <div className="prow-buttons">
+      {REMAKE_PARTS.map((p) => (
+        <label key={p} className="check">
+          <input id={`remake-part-${p}`} type="checkbox" checked={parts.includes(p)} onChange={(e) => toggle(p, e.target.checked)} /> {PART_LABELS[p]}
+        </label>
+      ))}
+    </div>
   )
 }
 
@@ -57,6 +63,7 @@ export function ReferencePanel(): React.JSX.Element {
   const bpm = song.tempos[0]?.bpm ?? 120
   const chordCount = song.chords.filter((c) => c.root >= 0).length
   const remade = song.tracks.filter((t) => t.remake)
+  const [parts, toggle] = useRemakeParts()
 
   if (!ref || !track) {
     return (
@@ -67,8 +74,10 @@ export function ReferencePanel(): React.JSX.Element {
           appear on the left of the stage, and the beat, harmony guides and chord suggestions all follow it.
         </p>
         <button className="btn primary" onClick={() => void importReference()}>Open a song…</button>
-        <RemakeOnOpen />
-        <p className="drawer-hint tight">Steady songs work best. Takes a few seconds; chords and sections are suggestions you can change.</p>
+        <p className="drawer-hint tight">
+          After picking the song, tick what to bring in: chords, sections, notes to sing, lyrics, or parts of the backing track as MIDI. Nothing else is added.
+          Steady songs work best; chords and sections are suggestions you can change.
+        </p>
       </section>
     )
   }
@@ -188,8 +197,11 @@ export function ReferencePanel(): React.JSX.Element {
             <p className="drawer-hint tight">
               The first time downloads the drum and bass separators (60 MB){ref.stems ? '' : ' after separating the vocals'}. A three-minute song takes a minute or two.
             </p>
+            <PartTicks parts={parts} toggle={toggle} />
             <div className="prow-buttons">
-              <button className="btn primary" onClick={() => void remakeBacking()}>Recreate the backing track</button>
+              <button className="btn primary" disabled={!parts.length} onClick={() => void remakeBacking(parts)}>
+                {parts.length === REMAKE_PARTS.length ? 'Recreate the backing track' : `Recreate the ${parts.map((p) => PART_LABELS[p].toLowerCase()).join(' and ') || '…'}`}
+              </button>
             </div>
           </>
         ) : (
@@ -226,12 +238,14 @@ export function ReferencePanel(): React.JSX.Element {
               Each part is a track: edit its notes on the stage, or pick another sound for it here or in the Tracks tab. To tidy a part’s timing, click it in the
               Tracks tab to select its notes and press Q.
             </p>
+            <PartTicks parts={parts} toggle={toggle} />
             <div className="prow-buttons">
-              <button className="btn" title="Replaces the remade tracks, edits included" onClick={() => void remakeBacking()}>Recreate again</button>
+              <button className="btn" disabled={!parts.length} title="Replaces the ticked parts' tracks, edits included; the others stay as they are" onClick={() => void remakeBacking(parts)}>
+                Recreate {parts.length === REMAKE_PARTS.length ? 'again' : `the ${parts.map((p) => PART_LABELS[p].toLowerCase()).join(' and ') || '…'}`}
+              </button>
             </div>
           </>
         )}
-        <RemakeOnOpen />
       </section>
 
       {ref.stems && (

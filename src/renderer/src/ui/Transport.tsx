@@ -21,6 +21,7 @@ import { setCountIn, togglePlay, toggleLoop, toggleMetronome, toggleRecord, togg
 import { clearBackground, pickBackgroundImage, setTheme, usePresetBackground } from '../actions/look'
 import { BACKGROUNDS } from '../view/backgrounds'
 import { openHelp } from './HelpDialog'
+import { FitBars } from './ContextMenu'
 import * as I from './icons'
 
 function fmtTime(sec: number): string {
@@ -372,6 +373,7 @@ function EditMenu(): React.JSX.Element {
           <div className="menu-label">Quantize to the snap grid</div>
           <button role="menuitem" onClick={run(() => quantize(false))}>Note starts <span className="kbd">Q</span></button>
           <button role="menuitem" onClick={run(() => quantize(true))}>Starts and ends <span className="kbd">Shift+Q</span></button>
+          <FitBars run={run} />
           <div className="menu-label">Select</div>
           <button role="menuitem" onClick={run(selectAll)}>Everything <span className="kbd">Ctrl+A</span></button>
           <button role="menuitem" onClick={run(() => selectTrack())}>Active track <span className="kbd">Ctrl+Shift+A</span></button>

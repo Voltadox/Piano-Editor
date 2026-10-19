@@ -7,6 +7,15 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.5.0',
+    date: '19 October 2026',
+    notes: [
+      'Choose what opening a song brings in: tick the key, chord names, the Chords pad, sections, the melody and harmonies to sing, lyrics, or the drums, bass and keys as MIDI. Nothing you leave unticked is added, so you can take just the bass of a song.',
+      'Recreate just some parts of the backing track: tick Drums, Bass or Keys under Backing track. The parts you already have stay as they are.',
+      'Fit to bars: select a loop you played without a click, right-click and pick 4 bars (or 1, 2, 8…). Keyfall sets the tempo you played at and moves the bar lines so the loop fills them exactly, without changing how it sounds.'
+    ]
+  },
+  {
     version: '0.4.0',
     date: '19 October 2026',
     notes: [

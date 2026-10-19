@@ -216,15 +216,23 @@ async function audition(paths: string[], parts: AuditionPart[], onProgress: (p: 
   }
 }
 
-/** Recreates the reference's backing track: drums, bass and keys as MIDI tracks with matching sounds. */
-export async function remakeBacking(): Promise<void> {
+/**
+ * Recreates parts of the reference's backing track (drums, bass and keys by default) as MIDI tracks
+ * with matching sounds. Only what a part needs is separated: the bass alone skips the drums. Other
+ * parts already remade are left as they are.
+ */
+export async function remakeBacking(want: RemakePart[] = PARTS.map((p) => p.part)): Promise<void> {
   if (!referenceTrack(getState().song)) {
     getState().notify('Open a song in the Reference tab first.', 'error')
     return
   }
+  if (!want.length) {
+    getState().notify('Tick at least one part to recreate.', 'error')
+    return
+  }
   // the backing track is recreated from the instrumental, so the vocals come out first
   if (!getState().song.reference?.stems) {
-    await separateReference()
+    await separateReference({ melody: false, harmonies: false })
     if (!getState().song.reference?.stems) return
   }
   const song = getState().song
@@ -235,6 +243,10 @@ export async function remakeBacking(): Promise<void> {
     getState().notify('The instrumental is missing. Separate the vocals again first.', 'error')
     return
   }
+  // the keys are what's left once the drums and bass are taken out, and they drop bass leakage
+  const wants = (p: RemakePart): boolean => want.includes(p)
+  const needDrums = wants('drums') || wants('keys')
+  const needBass = wants('bass') || wants('keys')
   const stage = { label: '', from: 0, to: 0 }
   const offModel = window.keyfall.onModelProgress((p) =>
     busy(`Downloading the ${p.name === 'bass' ? 'bass' : 'drum'} separator (${Math.round(p.received / 1e6)} of ${Math.round(p.total / 1e6)} MB, first time only)`, stage.from + (p.received / p.total) * (stage.to - stage.from) * 0.5)
@@ -247,45 +259,54 @@ export async function remakeBacking(): Promise<void> {
   try {
     step('Getting the instrumental ready', 0, 0.02)
     const [l, r] = take.rate === SEPARATION_RATE ? [take.pcm, take.right ?? take.pcm] : await resample([take.pcm, take.right ?? take.pcm], take.rate, SEPARATION_RATE)
-    step('Separating the drums', 0.02, 0.2)
-    const drums = await window.keyfall.separateStem('drums', l, r)
-    step('Separating the bass', 0.2, 0.4)
-    const bass = await window.keyfall.separateStem('bass', l, r)
+    const silent = { left: new Float32Array(l.length), right: new Float32Array(l.length) }
+    if (needDrums) step('Separating the drums', 0.02, needBass ? 0.2 : 0.4)
+    const drums = needDrums ? await window.keyfall.separateStem('drums', l, r) : silent
+    if (needBass) step('Separating the bass', needDrums ? 0.2 : 0.02, 0.4)
+    const bass = needBass ? await window.keyfall.separateStem('bass', l, r) : silent
     const mono = (a: Float32Array, b: Float32Array): Float32Array => a.map((v, i) => (v + b[i]) / 2)
-    const rest = l.map((v, i) => (v + r[i]) / 2 - (drums.left[i] + drums.right[i]) / 2 - (bass.left[i] + bass.right[i]) / 2)
+    const rest = wants('keys') ? l.map((v, i) => (v + r[i]) / 2 - (drums.left[i] + drums.right[i]) / 2 - (bass.left[i] + bass.right[i]) / 2) : new Float32Array(l.length)
     const [drums22, bass22, rest22] = await resample([mono(drums.left, drums.right), mono(bass.left, bass.right), rest], SEPARATION_RATE, BAND_RATE)
 
-    step('Finding the bass notes', 0.4, 0.45)
-    const bassHeard = await window.keyfall.transcribeNotes(bass22.slice())
-    step('Finding the chords and lines', 0.45, 0.5)
-    const restHeard = await window.keyfall.transcribeNotes(rest22.slice())
-    step('Finding the drum hits', 0.5, 0.55)
-    const kit = await readFont(BUILTIN_FONT)
-    if (!kit) throw new Error('The built-in GeneralUser GS soundfont is missing from this copy of Keyfall.')
-    const { hits } = await runWorker({ kind: 'drums', pcm: drums22.slice(), kit }, [kit], 'hits')
-
-    const bassNotes = bassLine(bassHeard)
-    const notes: Record<RemakePart, PartNote[]> = { drums: drumNotes(hits as Hit[]), bass: bassNotes, keys: keysPart(restHeard, bassNotes) }
+    const notes: Partial<Record<RemakePart, PartNote[]>> = {}
+    let bassNotes: PartNote[] = []
+    if (needBass) {
+      step('Finding the bass notes', 0.4, 0.45)
+      bassNotes = bassLine(await window.keyfall.transcribeNotes(bass22.slice()))
+      if (wants('bass')) notes.bass = bassNotes
+    }
+    if (wants('keys')) {
+      step('Finding the chords and lines', 0.45, 0.5)
+      notes.keys = keysPart(await window.keyfall.transcribeNotes(rest22.slice()), bassNotes)
+    }
+    if (wants('drums')) {
+      step('Finding the drum hits', 0.5, 0.55)
+      const kit = await readFont(BUILTIN_FONT)
+      if (!kit) throw new Error('The built-in GeneralUser GS soundfont is missing from this copy of Keyfall.')
+      const { hits } = await runWorker({ kind: 'drums', pcm: drums22.slice(), kit }, [kit], 'hits')
+      notes.drums = drumNotes(hits as Hit[])
+    }
     const audio: Record<RemakePart, Float32Array> = { drums: drums22, bass: bass22, keys: rest22 }
-    const parts: AuditionPart[] = PARTS.filter((p) => notes[p.part].length >= 4).map(({ part }) => ({
+    const parts: AuditionPart[] = PARTS.filter((p) => (notes[p.part]?.length ?? 0) >= 4).map(({ part }) => ({
       part,
-      notes: notes[part],
-      windows: auditionWindows(notes[part], 3, AUDITION_SECONDS).map((from) => ({
+      notes: notes[part]!,
+      windows: auditionWindows(notes[part]!, 3, AUDITION_SECONDS).map((from) => ({
         from,
         audio: audio[part].slice(Math.round(from * BAND_RATE), Math.round((from + AUDITION_SECONDS) * BAND_RATE))
       }))
     }))
-    if (!parts.length) throw new Error('No drums, bass or chords could be made out in the instrumental.')
+    if (!parts.length) throw new Error(`No ${want.map(partName).join(' or ')} could be made out in the instrumental.`)
 
     const fonts = await collection()
-    step(`Trying ${fonts.length} soundfonts on each part`, 0.55, 0.98)
-    const choices = await audition(fonts, parts, (p) => busy(`Trying ${fonts.length} soundfonts on each part`, 0.55 + p * 0.43))
+    step(`Trying ${fonts.length} soundfonts on ${parts.length === 1 ? `the ${partName(parts[0].part)}` : 'each part'}`, 0.55, 0.98)
+    const choices = await audition(fonts, parts, (p) => busy(stage.label, 0.55 + p * 0.43))
 
-    getState().apply((s) => withRemake(s, clip.tick, clip.offset, notes, choices))
+    getState().apply((s) => withRemake(s, clip.tick, clip.offset, want, notes, choices))
     getState().set({ busy: null })
     const made = PARTS.filter((p) => choices.get(p.part)?.length)
+    const missed = want.filter((p) => !choices.get(p)?.length)
     getState().notify(
-      `Recreated the backing track: ${made.map((p) => `${p.part} on ${describe(choices.get(p.part)![0])}`).join(', ')}. You're hearing the remake with the song's vocals; switch in Listen to. Click a track in the Tracks tab and press Q to tidy its timing.`
+      `Recreated ${made.map((p) => `the ${partName(p.part)} on ${describe(choices.get(p.part)![0])}`).join(', ')}${missed.length ? ` (no ${missed.map(partName).join(' or ')} heard)` : ''}. You're hearing the remake with the song's vocals; switch in Listen to. Click a track in the Tracks tab and press Q to tidy its timing.`
     )
   } catch (err) {
     getState().set({ busy: null })
@@ -298,20 +319,24 @@ export async function remakeBacking(): Promise<void> {
 
 export const describe = (c: SoundChoice): string => `${c.name} (${fontName(c.font)})`
 
+/** A part's name in a sentence. */
+const partName = (p: RemakePart): string => (p === 'keys' ? 'chords and lines' : p)
+
 /**
  * Adds (or replaces) the remade parts as tracks, notes placed where the song plays them, each on
- * its best sound, and switches to hearing the remake with the song's vocals.
+ * its best sound, and switches to hearing the remake with the song's vocals. Parts not redone
+ * (not in `redo`) keep their tracks.
  */
-function withRemake(song: Song, clipTick: number, clipOffset: number, notes: Record<RemakePart, PartNote[]>, choices: Map<RemakePart, SoundChoice[]>): Song {
+function withRemake(song: Song, clipTick: number, clipOffset: number, redo: RemakePart[], notes: Partial<Record<RemakePart, PartNote[]>>, choices: Map<RemakePart, SoundChoice[]>): Song {
   const map = tempoMap(song)
   const startSec = map.tickToSec(clipTick) - clipOffset
   const old = new Map(song.tracks.filter((t) => t.remake).map((t) => [t.remake!, t]))
-  let tracks = song.tracks.filter((t) => !t.remake)
+  let tracks = song.tracks.filter((t) => !t.remake || !redo.includes(t.remake))
   for (const { part, name, color } of PARTS) {
     const best = choices.get(part)?.[0]
-    if (!best) continue
+    if (!best || !redo.includes(part)) continue
     const placed = sortNotes(
-      notes[part]
+      (notes[part] ?? [])
         .filter((n) => n.end > clipOffset)
         .map((n) => {
           const tick = Math.max(0, Math.round(map.secToTick(startSec + n.start)))
@@ -335,7 +360,8 @@ function withRemake(song: Song, clipTick: number, clipOffset: number, notes: Rec
     }
     tracks = [...tracks, t]
   }
-  const remake = Object.fromEntries(choices) as Partial<Record<RemakePart, SoundChoice[]>>
+  const kept = Object.entries(song.reference?.remake ?? {}).filter(([p]) => !redo.includes(p as RemakePart))
+  const remake = Object.fromEntries([...kept, ...choices]) as Partial<Record<RemakePart, SoundChoice[]>>
   const next = { ...song, tracks, reference: { ...song.reference!, remake } }
   return hearRemake(next, true)
 }
