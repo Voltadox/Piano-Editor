@@ -1,6 +1,6 @@
 import { newAudioTrack, type AudioClip, type AudioTrack, type GuideVoice } from '../model/audio'
 import { newId, PALETTE, tempoMap } from '../model/song'
-import { getState, useStore } from './store'
+import { getState, useStore, type VocalNoteRef } from './store'
 
 /** Audio-track edits. Each is one undo step, like note edits. */
 
@@ -58,6 +58,47 @@ export function addRecordedPasses(trackId: number, passes: { tick: number; durat
     }
     return out
   })
+}
+
+/**
+ * Sets where one sung note lands: a pitch (MIDI, fractions bend it between keys), null to leave it
+ * as sung, or undefined to hand it back to autotune. Any earlier edit inside the note is replaced.
+ */
+export function setNoteEdit(note: VocalNoteRef, pitch: number | null | undefined): void {
+  mapClips(note.trackId, (clips) =>
+    clips.map((c) => {
+      if (c.id !== note.clipId) return c
+      const kept = (c.edits?.[note.takeId] ?? []).filter((e) => e.at < note.start || e.at >= note.end)
+      const list = pitch === undefined ? kept : [...kept, { at: (note.start + note.end) / 2, pitch }]
+      const edits = { ...c.edits, [note.takeId]: list }
+      if (!list.length) delete edits[note.takeId]
+      return { ...c, edits }
+    })
+  )
+}
+
+/** Hands every note of a vocal track back to autotune. */
+export function clearNoteEdits(trackId: number): void {
+  mapClips(trackId, (clips) => clips.map((c) => (c.edits ? { ...c, edits: undefined } : c)))
+}
+
+/** Moves a clip earlier (negative) or later by some milliseconds, to line a take up by ear. */
+export function nudgeClip(trackId: number, clipId: number, ms: number): void {
+  const map = tempoMap(getState().song)
+  mapClips(trackId, (clips) =>
+    clips.map((c) => {
+      if (c.id !== clipId) return c
+      let sec = map.tickToSec(c.tick) + ms / 1000
+      let { offset, duration } = c
+      // pulled back past the start of the song: drop the part that would be before it
+      if (sec < 0) {
+        offset -= sec
+        duration += sec
+        sec = 0
+      }
+      return duration > 0.05 ? { ...c, tick: Math.round(map.secToTick(sec)), offset, duration } : c
+    })
+  )
 }
 
 /** Cuts a clip in two at a song tick; both halves keep every take, so each can play a different one. */

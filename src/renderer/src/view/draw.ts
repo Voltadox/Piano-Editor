@@ -12,6 +12,7 @@ import {
   type Song
 } from '../model/song'
 import { HOP_SEC } from '../audio/pitch'
+import type { ClipNotes } from '../audio/vocals'
 import { DEFAULT_THEME, type Theme } from './theme'
 
 export const COLORS = {
@@ -100,6 +101,8 @@ export interface Scene {
   countdown?: number
   /** tuned vocal melodies to draw over the keys they sing */
   vocals?: { color: string; origin: number; from: number; to: number; pitch: Float32Array }[]
+  /** a vocal track's sung notes, shown as bars to move by hand (pitch editing) */
+  vocalNotes?: VocalNotesLayer | null
   /** section names shown at their bar lines */
   sections?: { bar: number; name: string }[]
   /** the chord lane: chord names at the time each chord starts */
@@ -394,6 +397,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: Scene): void {
     ctx.globalCompositeOperation = 'source-over'
   }
 
+  if (s.vocalNotes) drawVocalNotes(ctx, s.vocalNotes, keys, line, lo, hi, yOf)
   if (s.vocals?.length) drawVocals(ctx, s.vocals, keys, line, lo, hi, yOf)
 
   const litColors = new Map<number, string>()
@@ -458,6 +462,127 @@ export function chordPillAt(s: Scene, px: number, py: number): number | null {
     const y = yOf(m.sec)
     if (py >= y - CHORD_PILL.h - 2 && py <= y - 2) return m.index
   }
+  return null
+}
+
+/** Where a fractional pitch sits across the keys: key centres, with fractions in between. */
+function pitchX(keys: KeyLayout): { xOf: (m: number) => number; pitchAt: (x: number) => number } {
+  const centre = (p: number): number => keys.x(p) + keys.w(p) / 2
+  const xOf = (m: number): number => {
+    const p = Math.max(LOWEST, Math.min(HIGHEST - 1, m))
+    const b = Math.floor(p)
+    return centre(b) + (centre(b + 1) - centre(b)) * (p - b)
+  }
+  const pitchAt = (x: number): number => {
+    let lo = LOWEST
+    let hi = HIGHEST - 1
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1
+      if (centre(mid) <= x) lo = mid
+      else hi = mid - 1
+    }
+    const span = centre(lo + 1) - centre(lo)
+    return Math.max(LOWEST, Math.min(HIGHEST, lo + (x - centre(lo)) / span))
+  }
+  return { xOf, pitchAt }
+}
+
+/** The fractional pitch under an x position on the stage. */
+export const pitchAtX = (width: number, x: number): number => pitchX(keyLayout(width)).pitchAt(x)
+
+export interface VocalNotesLayer {
+  color: string
+  clips: ClipNotes[]
+  /** the note under the pointer, by clip and start frame */
+  hover?: { clipId: number; start: number } | null
+  /** a note being dragged, and the pitch it is being dragged to */
+  drag?: { clipId: number; start: number; pitch: number } | null
+}
+
+/** "E4", "E4 +12¢": a fractional pitch as the nearest note and how far off it is. */
+export function pitchLabel(m: number): string {
+  const r = Math.round(m)
+  const cents = Math.round((m - r) * 100)
+  return cents ? `${noteName(r)} ${cents > 0 ? '+' : ''}${cents}¢` : noteName(r)
+}
+
+/** The bar a sung note is drawn as: where it lands across the keys and its span up the stage. */
+function vocalNoteBox(c: ClipNotes, n: ClipNotes['notes'][number], keys: KeyLayout, line: number, yOf: (sec: number) => number, pitch: number): { x: number; w: number; top: number; bottom: number } {
+  const w = Math.max(6, keys.whiteW * 0.78)
+  const start = Math.max(c.from, c.origin + n.start * HOP_SEC)
+  const end = Math.min(c.to, c.origin + n.end * HOP_SEC)
+  return { x: pitchX(keys).xOf(pitch) - w / 2, w, top: yOf(end), bottom: Math.min(line, yOf(start)) }
+}
+
+const shownPitch = (n: ClipNotes['notes'][number]): number => (Number.isNaN(n.target) ? n.sung : n.target)
+
+/** Sung notes as soft bars under the vocal line: brighter when moved by hand, hollow when left as sung. */
+function drawVocalNotes(ctx: CanvasRenderingContext2D, layer: VocalNotesLayer, keys: KeyLayout, line: number, lo: number, hi: number, yOf: (sec: number) => number): void {
+  let label: { x: number; y: number; text: string } | null = null
+  for (const c of layer.clips) {
+    if (c.to < lo || c.from > hi) continue
+    for (const n of c.notes) {
+      const s = c.origin + n.start * HOP_SEC
+      const e = c.origin + n.end * HOP_SEC
+      if (e < Math.max(lo, c.from) || s > Math.min(hi, c.to)) continue
+      const dragging = layer.drag?.clipId === c.clipId && layer.drag.start === n.start
+      const hover = dragging || (layer.hover?.clipId === c.clipId && layer.hover.start === n.start)
+      const pitch = dragging ? layer.drag!.pitch : shownPitch(n)
+      const b = vocalNoteBox(c, n, keys, line, yOf, pitch)
+      if (b.bottom - b.top < 1) continue
+      roundRect(ctx, b.x, b.top, b.w, b.bottom - b.top, Math.min(b.w / 2, 6))
+      const untuned = !dragging && Number.isNaN(n.target)
+      ctx.fillStyle = hexA(layer.color, untuned ? 0.06 : hover ? 0.42 : n.edited ? 0.3 : 0.16)
+      ctx.fill()
+      ctx.setLineDash(untuned ? [4, 3] : [])
+      ctx.lineWidth = hover || n.edited ? 2 : 1
+      ctx.strokeStyle = hexA(layer.color, hover ? 1 : n.edited ? 0.85 : 0.5)
+      ctx.stroke()
+      ctx.setLineDash([])
+      if (dragging && !Number.isNaN(n.sung)) {
+        // a faint mark where it was sung, so you can see how far it has moved
+        const sx = pitchX(keys).xOf(n.sung)
+        ctx.fillStyle = hexA(layer.color, 0.5)
+        ctx.fillRect(sx - 1, b.top, 2, b.bottom - b.top)
+      }
+      if (hover) label = { x: b.x + b.w / 2, y: Math.max(16, b.top - 6), text: untuned ? `${pitchLabel(n.sung)} · as sung` : pitchLabel(pitch) }
+    }
+  }
+  if (label) {
+    ctx.font = '600 12px "Segoe UI", system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'bottom'
+    const w = ctx.measureText(label.text).width + 12
+    ctx.fillStyle = 'rgba(12,14,22,0.85)'
+    roundRect(ctx, label.x - w / 2, label.y - 18, w, 18, 5)
+    ctx.fill()
+    ctx.fillStyle = '#e4e7f2'
+    ctx.fillText(label.text, label.x, label.y - 3)
+    ctx.textAlign = 'left'
+  }
+  ctx.font = '600 12px "Segoe UI", system-ui, sans-serif'
+  ctx.textBaseline = 'middle'
+  const hint = layer.clips.length ? 'Editing pitch: drag a note sideways (Alt bends it freely) · double-click puts it back · Esc to finish' : 'Editing pitch: record a take on this vocal track first · Esc to finish'
+  const hw = ctx.measureText(hint).width + 20
+  ctx.fillStyle = 'rgba(12,14,22,0.85)'
+  roundRect(ctx, 90, line - 32, hw, 24, 12)
+  ctx.fill()
+  ctx.fillStyle = hexA(layer.color, 1)
+  ctx.fillText(hint, 100, line - 20)
+}
+
+/** The sung note under a point on the stage, while editing pitch. */
+export function hitVocalNote(s: Scene, px: number, py: number): { clip: ClipNotes; note: ClipNotes['notes'][number] } | null {
+  const layer = s.vocalNotes
+  if (!layer) return null
+  const { line, yOf } = timeAxis(s)
+  if (py >= line) return null
+  const keys = keyLayout(s.width)
+  for (const c of layer.clips)
+    for (const n of c.notes) {
+      const b = vocalNoteBox(c, n, keys, line, yOf, shownPitch(n))
+      if (px >= b.x - 3 && px <= b.x + b.w + 3 && py >= b.top - 3 && py <= b.bottom + 3) return { clip: c, note: n }
+    }
   return null
 }
 

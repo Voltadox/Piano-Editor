@@ -31,9 +31,10 @@ import { Banners, Busy, StatusBar, Toast } from './ui/Overlays'
 import { Drawer } from './ui/Drawer'
 import { Transport } from './ui/Transport'
 import { ChordMenu } from './ui/ChordMenu'
-import { ContextMenu } from './ui/ContextMenu'
+import { ContextMenu, VocalNoteMenu } from './ui/ContextMenu'
 import { StudioPanel } from './ui/StudioPanel'
 import { VideoDialog } from './ui/VideoDialog'
+import { HelpDialog } from './ui/HelpDialog'
 
 function isTyping(e: KeyboardEvent): boolean {
   const el = e.target as HTMLElement | null
@@ -99,6 +100,10 @@ function onKey(e: KeyboardEvent): void {
       deleteNotes(new Set(sel))
       return
     case 'Escape':
+      if (st.pitchEdit) {
+        st.set({ pitchEdit: false, vocalNoteMenu: null })
+        return
+      }
       if (st.playing) stop()
       st.setSelection(new Set())
       return
@@ -156,6 +161,8 @@ export default function App(): React.JSX.Element {
     engine.setSong(getState().song)
     const unsub = useStore.subscribe((s, prev) => {
       if (s.song !== prev.song) engine.setSong(s.song)
+      // newly tuned vocals are heard straight away, not from the next time their clip starts
+      if (s.vocalVersion !== prev.vocalVersion) engine.refreshClips()
     })
     engine.onEnded = () => {
       if (getState().recording) stop()
@@ -219,8 +226,10 @@ export default function App(): React.JSX.Element {
       <StatusBar />
       <Toast />
       <ContextMenu />
+      <VocalNoteMenu />
       <ChordMenu />
       <VideoDialog />
+      <HelpDialog />
       <Busy />
       {dropping && <div className="drop-hint">Drop a MIDI file to open it, or a soundfont to load it</div>}
     </div>

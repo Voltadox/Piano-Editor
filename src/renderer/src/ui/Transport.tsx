@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { engine } from '../audio/engine'
-import { exportAudio } from '../actions/export'
+import { exportAllTracks, exportAudio } from '../actions/export'
 import {
   addSoundfonts,
   applyBackupFont,
@@ -20,6 +20,7 @@ import { useStore, getState } from '../state/store'
 import { setCountIn, togglePlay, toggleLoop, toggleMetronome, toggleRecord, toggleSplitHands, toggleStudio, goToStart } from '../actions/transport'
 import { clearBackground, pickBackgroundImage, setTheme, usePresetBackground } from '../actions/look'
 import { BACKGROUNDS } from '../view/backgrounds'
+import { openHelp } from './HelpDialog'
 import * as I from './icons'
 
 function fmtTime(sec: number): string {
@@ -93,12 +94,16 @@ function Menu(props: {
 
 function ExportMenu(): React.JSX.Element {
   return (
-    <Menu trigger={<><I.IconExport /><span className="btn-label">Export</span></>} title="Export audio or video">
+    <Menu trigger={<><I.IconExport /><span className="btn-label">Export</span></>} title="Export audio, stems or video">
       {(run) => (
         <>
           <div className="menu-label">Audio</div>
           <button role="menuitem" onClick={run(() => void exportAudio('wav'))}>WAV · lossless</button>
           <button role="menuitem" onClick={run(() => void exportAudio('mp3'))}>MP3 · 256 kbps</button>
+          <div className="menu-label">Every track, into a folder</div>
+          <button role="menuitem" onClick={run(() => void exportAllTracks('midi+mp3'))}>Note tracks as MIDI, audio as MP3</button>
+          <button role="menuitem" onClick={run(() => void exportAllTracks('mp3'))}>All as MP3 stems</button>
+          <button role="menuitem" onClick={run(() => void exportAllTracks('wav'))}>All as WAV stems</button>
           <div className="menu-label">Video</div>
           <button role="menuitem" onClick={run(() => getState().set({ videoOpen: true }))}>
             Video… <span className="kbd">Ctrl+E</span>
@@ -543,6 +548,7 @@ export function Transport(): React.JSX.Element {
           <I.IconVelocity />
         </button>
         <button className={`icon-btn${drawerOpen ? ' active' : ''}`} title="Tracks (T)" onClick={() => set({ drawerOpen: !drawerOpen })}><I.IconTracks /></button>
+        <button className="icon-btn" title="Help and FAQ (F1)" onClick={openHelp}><I.IconHelp /></button>
       </div>
     </header>
   )

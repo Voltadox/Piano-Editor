@@ -10,9 +10,10 @@ import { tempoMap, ticksPerBar, ticksPerBeat, type Song } from '../model/song'
 import { setSongKey } from '../state/edit'
 import { savePref } from '../state/prefs'
 import { getState, useStore } from '../state/store'
-import { addAudioTrack, deleteClip, harmonyTracks, removeAudioTrack, splitClipAt, updateAudioTrack, updateClip, voiceName } from '../state/vocalEdit'
+import { addAudioTrack, clearNoteEdits, deleteClip, harmonyTracks, nudgeClip, removeAudioTrack, splitClipAt, updateAudioTrack, updateClip, voiceName } from '../state/vocalEdit'
 import { Choice, Field, Slider } from './controls'
 import * as I from './icons'
+import { TrackExportButton } from './TrackExport'
 
 const NOTE = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
 
@@ -123,6 +124,8 @@ function TrackEditor({ t }: { t: AudioTrack }): React.JSX.Element {
   const set = (patch: Partial<AudioTrack>): void => updateAudioTrack(t.id, patch)
   const tune = (patch: Partial<AudioTrack['tune']>): void => set({ tune: { ...t.tune, ...patch } })
   const recThis = recording?.kind === 'take' && recording.trackIds[0] === t.id
+  const pitchEdit = useStore((s) => s.pitchEdit)
+  const handEdits = t.clips.some((c) => c.edits && Object.keys(c.edits).length)
 
   return (
     <>
@@ -132,6 +135,7 @@ function TrackEditor({ t }: { t: AudioTrack }): React.JSX.Element {
           <input id={`vname-${t.id}`} className="track-name" value={t.name} aria-label="Vocal track name" onChange={(e) => set({ name: e.target.value })} />
           <button className={`ms${t.muted ? ' on mute' : ''}`} title="Mute" onClick={() => set({ muted: !t.muted })}>M</button>
           <button className={`ms${t.solo ? ' on solo' : ''}`} title="Solo" onClick={() => set({ solo: !t.solo })}>S</button>
+          <TrackExportButton track={{ kind: 'audio', id: t.id }} name={t.name} />
           <button className="icon-btn small" title="Delete this vocal track (undo with Ctrl+Z)" onClick={() => removeAudioTrack(t.id)}><I.IconTrash size={15} /></button>
         </div>
         <button
@@ -211,10 +215,25 @@ function TrackEditor({ t }: { t: AudioTrack }): React.JSX.Element {
         {t.tune.mode !== 'off' && (
           <Field label="Retune">
             <span className="meta">Natural</span>
-            <Slider id={`speed-${t.id}`} value={t.tune.speed} min={0} max={1} title="How quickly the pitch snaps to the note" onChange={(speed) => tune({ speed })} />
+            <Slider id={`speed-${t.id}`} value={t.tune.speed} min={0} max={1} title="Natural centres each note and keeps your vibrato and slides; Hard snaps straight to the note and holds it flat" onChange={(speed) => tune({ speed })} />
             <span className="meta">Hard</span>
           </Field>
         )}
+        <div className="pitch-edit-row">
+          <button
+            className={`btn${pitchEdit ? ' on' : ''}`}
+            disabled={!t.clips.length}
+            title="Shows each sung note as a bar over the keys: drag one sideways to move it (Alt bends it freely), double-click to put it back"
+            onClick={() => getState().set({ pitchEdit: !pitchEdit, activeAudioId: t.id })}
+          >
+            {pitchEdit ? 'Done editing pitch' : 'Edit pitch on the stage'}
+          </button>
+          {handEdits && (
+            <button className="btn small-btn" title="Hand every note of this track back to autotune" onClick={() => clearNoteEdits(t.id)}>
+              Reset hand edits
+            </button>
+          )}
+        </div>
       </section>
 
       <section className="psection">
@@ -276,6 +295,10 @@ function TrackEditor({ t }: { t: AudioTrack }): React.JSX.Element {
                 Bar {bar(c.tick)}
               </button>
               <span className="meta">{c.duration.toFixed(1)} s</span>
+              <span className="nudge" title="Move this clip a little earlier or later, to line it up by ear">
+                <button className="icon-btn small" onClick={() => nudgeClip(t.id, c.id, -10)}>−10 ms</button>
+                <button className="icon-btn small" onClick={() => nudgeClip(t.id, c.id, 10)}>+10 ms</button>
+              </span>
               <span className="takes" title="Which take plays">
                 <button className="icon-btn small" disabled={c.active === 0} onClick={() => updateClip(t.id, c.id, { active: c.active - 1 })}>‹</button>
                 <span className="meta">Take {c.active + 1}/{c.takes.length}</span>

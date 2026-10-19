@@ -58,6 +58,12 @@ export function livePitch(): number | null {
 }
 
 /**
+ * How long ago the singing that livePitch() reports happened: the mic's own delay plus half of
+ * the stretch of input it is worked out from.
+ */
+export const livePitchDelay = (): number => (mic?.inputLatency ?? 0.01) + recent.length / 2 / (engine.ctx?.sampleRate ?? 48000)
+
+/**
  * Loads the capture worklet. It ships as a plain file next to the page (public/), because the
  * page's security policy blocks scripts from data: URLs, which is what a bundled tiny file becomes.
  */

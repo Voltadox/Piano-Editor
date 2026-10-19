@@ -340,11 +340,13 @@ function selectWhere(pred: (n: Note, t: Track) => boolean, emptyMsg: string): vo
   const sel = new Set<number>()
   for (const t of getState().song.tracks) for (const n of t.notes) if (pred(n, t)) sel.add(n.id)
   getState().setSelection(sel)
-  if (!sel.size) getState().notify(emptyMsg)
+  if (!sel.size && emptyMsg) getState().notify(emptyMsg)
 }
 
-export function selectTrack(trackId = getState().activeTrackId): void {
-  selectWhere((_n, t) => t.id === trackId, 'The active track has no notes.')
+/** Every note in a track; with `add`, on top of what is already selected. */
+export function selectTrack(trackId = getState().activeTrackId, add = false, emptyMsg = 'The active track has no notes.'): void {
+  const keep = add ? getState().selection : new Set<number>()
+  selectWhere((n, t) => t.id === trackId || keep.has(n.id), emptyMsg)
 }
 
 /** Every note with the same pitch as a selected note, in the same track. */

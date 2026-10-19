@@ -1,8 +1,9 @@
 import { GM_NAMES } from '../model/gm'
 import { DRUM_CHANNEL, PALETTE } from '../model/song'
-import { addTrack, choosePreset, removeTrack, setDrums, updateTrack } from '../state/edit'
+import { addTrack, choosePreset, removeTrack, selectTrack, setDrums, updateTrack } from '../state/edit'
 import { useStore } from '../state/store'
 import * as I from './icons'
+import { TrackExportButton } from './TrackExport'
 
 /** The Tracks tab: instruments, colours, mute and solo for the note tracks. */
 export function TracksPanel(): React.JSX.Element {
@@ -14,7 +15,7 @@ export function TracksPanel(): React.JSX.Element {
 
   return (
     <>
-      <p className="drawer-hint">New notes go into the highlighted track. Clicking a note also selects its track.</p>
+      <p className="drawer-hint">Click a track to select all its notes, ready to move, transpose or delete together (Ctrl+click adds another track). New notes go into the highlighted track.</p>
       <ul className="track-list">
         {tracks.map((t) => {
           const drums = t.channel === DRUM_CHANNEL
@@ -22,7 +23,11 @@ export function TracksPanel(): React.JSX.Element {
             <li
               key={t.id}
               className={`track${t.id === activeTrackId ? ' active' : ''}`}
-              onMouseDown={() => set({ activeTrackId: t.id })}
+              onMouseDown={(e) => {
+                set({ activeTrackId: t.id })
+                // the track's own controls just do their job; anywhere else picks up all its notes
+                if (!(e.target as Element).closest('input, select, button, label')) selectTrack(t.id, e.ctrlKey || e.shiftKey, '')
+              }}
             >
               <div className="track-row">
                 <label className="swatch" style={{ background: t.color }} title="Track colour">
@@ -91,6 +96,7 @@ export function TracksPanel(): React.JSX.Element {
                 )}
                 <span className="meta" title="MIDI channel">ch {t.channel + 1}</span>
                 <span className="meta" title="Notes">{t.notes.length.toLocaleString()}</span>
+                <TrackExportButton track={{ kind: 'notes', id: t.id }} name={t.name} />
                 <button className="icon-btn small" title="Delete track (undo with Ctrl+Z)" onClick={() => removeTrack(t.id)}><I.IconTrash size={15} /></button>
               </div>
               <div className="palette">

@@ -18,6 +18,8 @@ import { toBuffer } from '../audio/takes'
 import { buildChain } from '../audio/vocalChain'
 import { clipAudio, processAll, vocalLines } from '../audio/vocals'
 import { audioAudible, tempoMap } from '../model/song'
+import type { AudioTrack } from '../model/audio'
+import { writeMidiFile } from '../model/midiio'
 import RenderWorker from '../audio/render.worker?worker'
 import { getState } from '../state/store'
 import type { Song } from '../model/song'
@@ -29,17 +31,19 @@ const TAIL = 2.5
 
 class Cancelled extends Error {}
 
+/** Renders a song's notes (the open song unless given), at least `minDuration` seconds long. */
 function render(
   req: Omit<RenderRequest, 'soundfont' | 'backup' | 'events' | 'duration'>,
   onProgress: (p: number) => void,
-  signal: AbortSignal
+  signal: AbortSignal,
+  song: Song = getState().song,
+  minDuration = 0
 ): Promise<Extract<RenderReply, { type: 'done' | 'pcm' }>> {
   if (!engine.hasSound) return Promise.reject(new Error('Load a soundfont first. Exports are rendered through it.'))
-  const song = getState().song
   const built = buildEvents(song)
   const events = built.events
   // vocals can run past the last note
-  const duration = Math.max(built.duration, vocalEnd(song))
+  const duration = Math.max(built.duration, vocalEnd(song), minDuration)
   return new Promise((resolve, reject) => {
     const worker = new RenderWorker()
     signal.addEventListener('abort', () => {
@@ -75,8 +79,11 @@ function vocalEnd(song: Song): number {
   return end
 }
 
-/** Mixes the song's vocal tracks (tuned, through their effects) over the rendered notes. */
-async function mixVocals(song: Song, left: Float32Array, right: Float32Array, lead: number): Promise<{ left: Float32Array; right: Float32Array }> {
+/**
+ * Mixes the song's audible audio tracks (vocals tuned and through their effects) over the rendered
+ * notes; with `only`, just those tracks, whether muted or not.
+ */
+async function mixVocals(song: Song, left: Float32Array, right: Float32Array, lead: number, only?: AudioTrack[]): Promise<{ left: Float32Array; right: Float32Array }> {
   await processAll(song)
   const len = left.length
   const ctx = new OfflineAudioContext(2, len, SAMPLE_RATE)
@@ -95,9 +102,9 @@ async function mixVocals(song: Song, left: Float32Array, right: Float32Array, le
   notes.connect(limiter)
   notes.start(0)
   const map = tempoMap(song)
-  for (const t of song.audioTracks) {
-    if (!t.clips.length || !audioAudible(t, song)) continue
-    const chain = t.kind && t.kind !== 'vocal' ? (() => { const g = ctx.createGain(); return { input: g, output: g } })() : buildChain(ctx, t.preset, t.amount)
+  for (const t of only ?? song.audioTracks.filter((x) => audioAudible(x, song))) {
+    if (!t.clips.length) continue
+    const chain = t.kind && t.kind !== 'vocal' ? (() => { const g = ctx.createGain(); return { input: g, output: g } })() : buildChain(ctx, t.preset, t.amount, 60 / map.bpmAt(0))
     const vol = ctx.createGain()
     vol.gain.value = t.volume
     const pan = ctx.createStereoPanner()
@@ -187,6 +194,124 @@ export async function exportAudio(format: 'wav' | 'mp3', targetPath?: string): P
     const saved = await window.keyfall.writeFile(path, data)
     finish()
     getState().notify(`Exported ${saved.name}`)
+  } catch (err) {
+    finish(err)
+  }
+}
+
+// ---------- single tracks and stems ----------
+
+export type TrackRef = { kind: 'notes' | 'audio'; id: number }
+export type TrackFormat = 'mid' | 'mp3' | 'wav'
+
+/** A name that's safe in a file name. */
+const safeName = (s: string): string => s.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim() || 'Track'
+
+function trackOf(song: Song, ref: TrackRef): { name: string; empty: boolean } | null {
+  if (ref.kind === 'notes') {
+    const t = song.tracks.find((x) => x.id === ref.id)
+    return t ? { name: t.name, empty: !t.notes.length } : null
+  }
+  const t = song.audioTracks.find((x) => x.id === ref.id)
+  return t ? { name: t.name, empty: !t.clips.length } : null
+}
+
+/**
+ * One track on its own, as a file. Audio starts at the top of the song and runs the song's full
+ * length, so stems line up when they're dropped into another program together. Each keeps its
+ * own level, pan and effects (vocals tuned), whether or not it's muted here.
+ */
+async function trackFile(song: Song, ref: TrackRef, format: TrackFormat, onProgress: (p: number) => void, signal: AbortSignal): Promise<Uint8Array> {
+  const length = Math.max(buildEvents(song).duration, vocalEnd(song))
+  if (ref.kind === 'notes') {
+    const t = song.tracks.find((x) => x.id === ref.id)!
+    // guide tracks (notes to sing) are silent here, but on their own they should be heard
+    const alone = { ...t, muted: false, solo: false, silent: false }
+    if (format === 'mid') return writeMidiFile({ ...song, tracks: [alone] }, t.name)
+    const res = await render({ lead: 0, tail: TAIL, sampleRate: SAMPLE_RATE, format, kbps: 256 }, onProgress, signal, { ...song, tracks: [alone], audioTracks: [] }, length)
+    if (res.type !== 'done') throw new Error('Unexpected render result')
+    return res.data
+  }
+  const t = song.audioTracks.find((x) => x.id === ref.id)!
+  const len = Math.ceil((length + TAIL) * SAMPLE_RATE)
+  onProgress(0.2)
+  const mix = await mixVocals(song, new Float32Array(len), new Float32Array(len), 0, [t])
+  onProgress(0.7)
+  return encode({ encode: true, left: mix.left, right: mix.right, sampleRate: SAMPLE_RATE, format: format === 'mid' ? 'mp3' : format, kbps: 256 }, signal)
+}
+
+/** Exports one track (note track as MIDI, MP3 or WAV; audio track as MP3 or WAV), asking where to save it. */
+export async function exportTrack(ref: TrackRef, format: TrackFormat): Promise<void> {
+  const { song, fileName } = getState()
+  const t = trackOf(song, ref)
+  if (!t) return
+  if (t.empty) {
+    getState().notify(`${t.name} has nothing in it to export yet.`)
+    return
+  }
+  if (format !== 'mid' && ref.kind === 'notes' && !engine.hasSound) {
+    getState().notify('Load a soundfont first. Note tracks are rendered through it (or export them as MIDI).', 'error')
+    return
+  }
+  const path = await window.keyfall.saveDialog(format === 'mid' ? 'midi' : format, `${safeName(fileName)} - ${safeName(t.name)}.${format}`)
+  if (!path) return
+  engine.pause()
+  getState().set({ playing: false })
+  const label = `Exporting ${t.name}`
+  const ctl = startBusy(label)
+  try {
+    const data = await trackFile(song, ref, format, (p) => progress(label, p, ctl), ctl.signal)
+    const saved = await window.keyfall.writeFile(path, data)
+    finish()
+    getState().notify(`Exported ${saved.name}`)
+  } catch (err) {
+    finish(err)
+  }
+}
+
+/** How every track is written by "Export all tracks". */
+export type StemsChoice = 'mp3' | 'wav' | 'midi+mp3'
+
+/**
+ * Writes every track that has something in it into a folder: as MP3 or WAV stems, or with note
+ * tracks as MIDI and audio tracks as MP3.
+ */
+export async function exportAllTracks(choice: StemsChoice, folder?: string): Promise<void> {
+  const { song, fileName } = getState()
+  const refs: TrackRef[] = [
+    ...song.tracks.filter((t) => t.notes.length).map((t) => ({ kind: 'notes' as const, id: t.id })),
+    ...song.audioTracks.filter((t) => t.clips.length).map((t) => ({ kind: 'audio' as const, id: t.id }))
+  ]
+  if (!refs.length) {
+    getState().notify('There are no tracks with anything in them to export yet.')
+    return
+  }
+  const formatOf = (r: TrackRef): TrackFormat => (choice === 'midi+mp3' ? (r.kind === 'notes' ? 'mid' : 'mp3') : choice)
+  if (refs.some((r) => r.kind === 'notes' && formatOf(r) !== 'mid') && !engine.hasSound) {
+    getState().notify('Load a soundfont first. Note tracks are rendered through it (or choose MIDI for note tracks).', 'error')
+    return
+  }
+  const dir = folder ?? (await window.keyfall.pickFolder())
+  if (!dir) return
+  engine.pause()
+  getState().set({ playing: false })
+  const ctl = startBusy('Exporting tracks')
+  const used = new Set<string>()
+  const sep = dir.includes('\\') ? '\\' : '/'
+  try {
+    for (let i = 0; i < refs.length; i++) {
+      const r = refs[i]
+      const name = trackOf(song, r)!.name
+      const label = `Exporting ${name} (${i + 1} of ${refs.length})`
+      const data = await trackFile(song, r, formatOf(r), (p) => progress(label, (i + p) / refs.length, ctl), ctl.signal)
+      // two tracks with one name get numbered rather than overwriting each other
+      let file = `${safeName(fileName)} - ${safeName(name)}`
+      for (let n = 2; used.has(file.toLowerCase()); n++) file = `${safeName(fileName)} - ${safeName(name)} (${n})`
+      used.add(file.toLowerCase())
+      await window.keyfall.writeFile(`${dir}${sep}${file}.${formatOf(r)}`, data)
+    }
+    finish()
+    getState().notify(`Exported ${refs.length} track${refs.length === 1 ? '' : 's'} to ${dir}`)
   } catch (err) {
     finish(err)
   }

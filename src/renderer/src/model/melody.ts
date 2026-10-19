@@ -1,4 +1,4 @@
-import { detectPitch, HOP_SEC, hzToMidi } from '../audio/pitch'
+import { detectPitch, HOP_SEC, hzToMidi, segmentNotes } from '../audio/pitch'
 
 export interface SungNote {
   /** seconds into the audio */
@@ -9,9 +9,9 @@ export interface SungNote {
 }
 
 /**
- * The notes a voice sings: pitch is tracked every 10 ms, and a note runs while the voice stays
- * near one pitch. A move of more than ¾ of a semitone that lasts 40 ms starts the next note;
- * very short notes are dropped and repeated notes split by a tiny gap are joined.
+ * The notes a voice sings: pitch is tracked every 10 ms and split into notes where the voice
+ * moves to a new pitch (see segmentNotes); very short notes are dropped and repeated notes split
+ * by a tiny gap are joined.
  */
 export function melodyNotes(pcm: Float32Array, rate: number): SungNote[] {
   const f0 = detectPitch(pcm, rate)
@@ -25,33 +25,12 @@ export function melodyNotes(pcm: Float32Array, rate: number): SungNote[] {
     return Math.sqrt(s / Math.max(1, b - a))
   })
   const notes: SungNote[] = []
-  let i = 0
-  while (i < midi.length) {
-    if (Number.isNaN(midi[i])) {
-      i++
-      continue
-    }
-    const start = i
-    let centre = midi[i]
-    let away = 0
-    let j = i + 1
-    for (; j < midi.length && !Number.isNaN(midi[j]); j++) {
-      if (Math.abs(midi[j] - centre) > 0.75) {
-        if (++away >= 4) {
-          j -= away - 1
-          break
-        }
-      } else {
-        away = 0
-        // follow slow drift, so vibrato and scoops stay one note
-        centre += (midi[j] - centre) * 0.1
-      }
-    }
-    const run = midi.slice(start, j).filter((m) => !Number.isNaN(m)).sort((a, b) => a - b)
+  for (const { start, end } of segmentNotes(midi)) {
+    if ((end - start) * HOP_SEC < 0.08) continue
+    const run = midi.slice(start, end).sort((a, b) => a - b)
     const pitch = Math.round(run[run.length >> 1])
-    const peak = Math.max(...loud.slice(start, j))
-    if ((j - start) * HOP_SEC >= 0.08) notes.push({ start: start * HOP_SEC, end: j * HOP_SEC, pitch, vel: Math.max(40, Math.min(120, Math.round(40 + peak * 400))) })
-    i = Math.max(j, start + 1)
+    const peak = Math.max(...loud.slice(start, end))
+    notes.push({ start: start * HOP_SEC, end: end * HOP_SEC, pitch, vel: Math.max(40, Math.min(120, Math.round(40 + peak * 400))) })
   }
   // join repeats split by a breath shorter than 60 ms
   const joined: SungNote[] = []

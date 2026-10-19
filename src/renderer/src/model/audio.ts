@@ -1,3 +1,5 @@
+import type { TuneEdit } from '../audio/pitch'
+
 /** Recorded audio in a song: vocal tracks made of clips, each clip holding one or more takes. */
 
 export type VocalPreset = 'clean' | 'dreamy' | 'underwater' | 'tape' | 'haze'
@@ -28,6 +30,8 @@ export interface AudioClip {
   active: number
   fadeIn: number
   fadeOut: number
+  /** notes moved by hand after autotune, per take id */
+  edits?: Record<string, TuneEdit[]>
 }
 
 export interface AudioTrack {

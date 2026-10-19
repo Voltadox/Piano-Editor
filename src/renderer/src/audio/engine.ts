@@ -14,12 +14,12 @@ const START_DELAY = 0.04
 type Listener = () => void
 
 /** Vocals get their preset's effects; references and stems pass straight through. */
-function chainFor(ctx: BaseAudioContext, t: AudioTrack): Chain {
+function chainFor(ctx: BaseAudioContext, t: AudioTrack, beatSec: number): Chain {
   if (t.kind && t.kind !== 'vocal') {
     const g = ctx.createGain()
     return { input: g, output: g }
   }
-  return buildChain(ctx, t.preset, t.amount)
+  return buildChain(ctx, t.preset, t.amount, beatSec)
 }
 
 /** One audio track's path to the speakers: clip sum, effects chain, level and pan. */
@@ -28,6 +28,8 @@ interface Strip {
   chain: Chain
   preset: string
   amount: number
+  /** beat length the chain's echoes were timed to */
+  beat: number
   vol: GainNode
   pan: StereoPannerNode
 }
@@ -79,7 +81,7 @@ class Engine {
   /** time-stretched copies of clip audio for the current practice speed */
   private stretched = new WeakMap<Float32Array, { rate: number; pcm: Float32Array; right?: Float32Array }>()
   private strips = new Map<number, Strip>()
-  private voices: AudioBufferSourceNode[] = []
+  private voices: { src: AudioBufferSourceNode; gain: GainNode }[] = []
   /** Told the audio time at which a song time plays: at every start and every loop jump (for recording). */
   onAnchor: ((ctxTime: number, songTime: number) => void) | null = null
   /** Called on every scheduler tick with the song time (drives the harmony guide tone). */
@@ -169,7 +171,26 @@ class Engine {
 
   time(): number {
     if (!this.playing || !this.ctx) return this.pos
-    const now = this.ctx.currentTime
+    return this.songTimeAt(this.ctx.currentTime)
+  }
+
+  /**
+   * The song time being heard right now: the clock less the output's delay (the sound card's
+   * buffer, and a lot more over Bluetooth). The stage is drawn at this, so notes, lyrics and the
+   * vocal line meet the keys when you hear them rather than a little before.
+   */
+  heardTime(): number {
+    if (!this.playing || !this.ctx) return this.pos
+    return this.songTimeAt(this.ctx.currentTime - this.outputDelay)
+  }
+
+  /** Seconds between the clock and the speakers. */
+  get outputDelay(): number {
+    const ctx = this.ctx
+    return ctx ? Math.max(0, Math.min(0.5, (ctx.outputLatency || 0) + ctx.baseLatency)) : 0
+  }
+
+  private songTimeAt(now: number): number {
     if (this.prev && now < this.startCtx) return this.prev.startPos + (now - this.prev.startCtx) * this.rate
     return Math.max(this.startPos, this.startPos + (now - this.startCtx) * this.rate)
   }
@@ -189,7 +210,7 @@ class Engine {
     if (this.playing) this.reconcile()
     else this.applyPrograms(song)
     if (!prev || prev.tracks !== song.tracks) this.applyMix(song)
-    if (!prev || prev.audioTracks !== song.audioTracks || prev.tracks !== song.tracks) this.applyAudioMix(song)
+    if (!prev || prev.audioTracks !== song.audioTracks || prev.tracks !== song.tracks || prev.tempos !== song.tempos) this.applyAudioMix(song)
   }
 
   /** `preroll` seconds are played before the current position, with clicks (a recording count-in). */
@@ -419,27 +440,29 @@ class Engine {
   /** The strip for an audio track, rebuilding its effects chain when the preset or amount changes. */
   private strip(t: AudioTrack): Strip {
     const ctx = this.ctx!
+    const beat = this.song ? 60 / tempoMap(this.song).bpmAt(0) : 0.5
     let s = this.strips.get(t.id)
     if (!s) {
       const input = ctx.createGain()
-      const chain = chainFor(ctx, t)
+      const chain = chainFor(ctx, t, beat)
       const vol = ctx.createGain()
       const pan = ctx.createStereoPanner()
       vol.gain.value = this.song && audioAudible(t, this.song) ? t.volume : 0
       pan.pan.value = t.pan
       input.connect(chain.input)
       chain.output.connect(vol).connect(pan).connect(this.master!)
-      s = { input, chain, preset: t.preset, amount: t.amount, vol, pan }
+      s = { input, chain, preset: t.preset, amount: t.amount, beat, vol, pan }
       this.strips.set(t.id, s)
-    } else if (t.kind === 'vocal' || !t.kind ? s.preset !== t.preset || Math.abs(s.amount - t.amount) > 0.001 : false) {
+    } else if (t.kind === 'vocal' || !t.kind ? s.preset !== t.preset || Math.abs(s.amount - t.amount) > 0.001 || Math.abs(s.beat - beat) > 0.001 : false) {
       // swap the chain between the clip input and the fader; playing clips carry on through it
       s.input.disconnect()
       s.chain.output.disconnect()
-      s.chain = chainFor(ctx, t)
+      s.chain = chainFor(ctx, t, beat)
       s.input.connect(s.chain.input)
       s.chain.output.connect(s.vol)
       s.preset = t.preset
       s.amount = t.amount
+      s.beat = beat
     }
     return s
   }
@@ -482,7 +505,8 @@ class Engine {
       }
   }
 
-  private startClip(t: AudioTrack, c: AudioClip, at: number, into: number): void {
+  /** `soft` fades the clip in over a moment, for swapping one version of it for another mid-play. */
+  private startClip(t: AudioTrack, c: AudioClip, at: number, into: number, soft = false): void {
     const ctx = this.ctx
     const audio = this.song && ctx ? clipAudio(this.song, t, c) : null
     if (!ctx || !audio) return
@@ -507,25 +531,58 @@ class Engine {
     const fadeOut = Math.max(0.005, c.fadeOut) / r
     const realSkip = skip / r
     const realDur = dur / r
-    g.gain.setValueAtTime(Math.min(1, realSkip / fadeIn), when)
-    if (realSkip < fadeIn) g.gain.linearRampToValueAtTime(1, when + fadeIn - realSkip)
+    if (soft && realDur > 0.05) {
+      g.gain.setValueAtTime(0, when)
+      g.gain.linearRampToValueAtTime(1, when + 0.02)
+    } else {
+      g.gain.setValueAtTime(Math.min(1, realSkip / fadeIn), when)
+      if (realSkip < fadeIn) g.gain.linearRampToValueAtTime(1, when + fadeIn - realSkip)
+    }
     g.gain.setValueAtTime(1, when + Math.max(0, realDur - fadeOut))
     g.gain.linearRampToValueAtTime(0, when + realDur)
     src.connect(g).connect(this.strip(t).input)
     src.start(when, (c.offset + skip) / r, realDur)
-    this.voices.push(src)
-    src.onended = () => (this.voices = this.voices.filter((v) => v !== src))
+    const voice = { src, gain: g }
+    this.voices.push(voice)
+    src.onended = () => (this.voices = this.voices.filter((v) => v !== voice))
   }
 
-  private stopVoices(at: number): void {
+  /** Stops every playing clip at `at`, or with `fade` lets them fade out over that long first. */
+  private stopVoices(at: number, fade = 0): void {
     for (const v of this.voices) {
       try {
-        v.stop(at)
+        if (fade) {
+          v.gain.gain.cancelScheduledValues(at)
+          v.gain.gain.setValueAtTime(1, at)
+          v.gain.gain.linearRampToValueAtTime(0, at + fade)
+        }
+        v.src.stop(at + fade)
       } catch {
         // already stopped
       }
     }
     this.voices = []
+  }
+
+  /**
+   * Swaps the audio clips that are playing (or queued) for their current versions, crossfading,
+   * so a take that has just been autotuned, or a note just moved by hand, is heard straight away.
+   */
+  refreshClips(): void {
+    const ctx = this.ctx
+    // a queued loop jump owns the clips from here; they pick up the new versions when it lands
+    if (!this.playing || !ctx || !this.song || this.prev) return
+    const at = ctx.currentTime + 0.03
+    const pos = this.songTimeAt(at)
+    this.stopVoices(at, 0.02)
+    const song = this.song
+    const map = tempoMap(song)
+    for (const t of song.audioTracks)
+      for (const c of t.clips) {
+        const s = map.tickToSec(c.tick)
+        if (s < pos && s + c.duration > pos) this.startClip(t, c, at, pos - s, true)
+        else if (s >= pos && s < this.schedUntil) this.startClip(t, c, this.ctxAt(s), 0)
+      }
   }
 
   /** Sends every track's mixer settings straight to the synth, so changes are heard immediately. */
@@ -549,6 +606,31 @@ class Engine {
 
 
   // ---------- auditioning ----------
+
+  private snippet: AudioBufferSourceNode | null = null
+
+  /** Plays a stretch of a track's audio on its own, through the track's effects (to hear an edit). */
+  async playSnippet(t: AudioTrack, pcm: Float32Array, rate: number, from: number, dur: number): Promise<void> {
+    await this.init()
+    const ctx = this.ctx!
+    await ctx.resume()
+    try {
+      this.snippet?.stop()
+    } catch {
+      // already ended
+    }
+    const src = ctx.createBufferSource()
+    src.buffer = toBuffer(ctx, pcm, rate)
+    const g = ctx.createGain()
+    const at = ctx.currentTime + 0.02
+    g.gain.setValueAtTime(0, at)
+    g.gain.linearRampToValueAtTime(1, at + 0.01)
+    g.gain.setValueAtTime(1, at + Math.max(0.01, dur - 0.03))
+    g.gain.linearRampToValueAtTime(0, at + dur)
+    src.connect(g).connect(this.strip(t).input)
+    src.start(at, Math.max(0, from), dur)
+    this.snippet = src
+  }
 
   previewNote(ch: number, pitch: number, vel = 100, length = 0.3): void {
     void this.init().then(() => {

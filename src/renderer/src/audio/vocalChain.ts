@@ -86,14 +86,34 @@ function saturator(ctx: BaseAudioContext, drive: number): WaveShaperNode {
   return ws
 }
 
-/** Builds a preset's chain. `amount` (0..1) blends from nearly dry to the full effect. */
-export function buildChain(ctx: BaseAudioContext, preset: VocalPreset, amount: number): Chain {
+/**
+ * An echo time that sits on the song's grid: a dotted eighth, a quarter, an eighth or longer,
+ * whichever first falls in a slow-echo range. An echo off the beat makes the voice sound out of time.
+ */
+export function echoTime(beatSec: number): number {
+  for (const m of [0.75, 1, 0.5, 1.5, 2]) if (beatSec * m >= 0.28 && beatSec * m <= 0.65) return beatSec * m
+  return Math.max(0.1, Math.min(1.9, beatSec * 0.75))
+}
+
+/**
+ * Builds a preset's chain. `amount` (0..1) blends from nearly dry to the full effect; `beatSec`
+ * is the song's beat length, which timed echoes follow.
+ */
+export function buildChain(ctx: BaseAudioContext, preset: VocalPreset, amount: number, beatSec = 0.5): Chain {
   const input = ctx.createGain()
   const output = ctx.createGain()
   const a = Math.max(0, Math.min(1, amount))
   // rumble and mic thumps never help a vocal
-  const hp = filter(ctx, 'highpass', 110)
-  input.connect(hp)
+  const rumble = filter(ctx, 'highpass', 110)
+  // a gentle vocal compressor: evens out loud and soft phrases so the voice sits up in the mix
+  const comp = ctx.createDynamicsCompressor()
+  comp.threshold.value = -22
+  comp.knee.value = 8
+  comp.ratio.value = 3
+  comp.attack.value = 0.006
+  comp.release.value = 0.15
+  const hp = gain(ctx, 1.4)
+  input.connect(rumble).connect(comp).connect(hp)
   const dry = gain(ctx, 1)
   dry.connect(output)
 
@@ -113,9 +133,9 @@ export function buildChain(ctx: BaseAudioContext, preset: VocalPreset, amount: n
       hp.connect(dry)
       dry.gain.value = 1 - 0.35 * a
       send(reverb(ctx, 5.5, 0.85, 0.045), 0.9 * a)
-      // a slow, dark echo underneath the reverb
+      // a slow, dark echo underneath the reverb, in time with the song
       const echo = ctx.createDelay(2)
-      echo.delayTime.value = 0.42
+      echo.delayTime.value = echoTime(beatSec)
       const fb = gain(ctx, 0.45)
       const tone = filter(ctx, 'lowpass', 2600)
       echo.connect(tone).connect(fb).connect(echo)

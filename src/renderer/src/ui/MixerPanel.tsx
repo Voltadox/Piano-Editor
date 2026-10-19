@@ -3,12 +3,16 @@ import { setTrackMix } from '../state/edit'
 import { getState, useStore } from '../state/store'
 import { updateAudioTrack } from '../state/vocalEdit'
 import { Slider } from './controls'
+import { ExportAllTracksButton, TrackExportButton } from './TrackExport'
+import type { TrackRef } from '../actions/export'
 
 interface Row {
   key: string
+  /** which track, for exporting it */
+  track: TrackRef
   name: string
   color: string
-  kind: 'notes' | 'vocal'
+  kind: 'notes' | 'vocal' | 'song' | 'stem'
   volume: number
   pan: number
   /** reverb send for note tracks, effect amount for vocals */
@@ -24,9 +28,10 @@ function ChannelRow({ r }: { r: Row }): React.JSX.Element {
       <div className="mix-name">
         <i style={{ background: r.color }} />
         <span title={r.name}>{r.name}</span>
-        <span className="meta">{r.kind === 'vocal' ? 'vocal' : 'notes'}</span>
+        <span className="meta">{r.kind}</span>
         <button className={`ms${r.muted ? ' on mute' : ''}`} title="Mute" onClick={() => r.set({ muted: !r.muted })}>M</button>
         <button className={`ms${r.solo ? ' on solo' : ''}`} title="Solo" onClick={() => r.set({ solo: !r.solo })}>S</button>
+        <TrackExportButton track={r.track} name={r.name} />
       </div>
       <label className="mix-ctl">
         <span>Level</span>
@@ -38,8 +43,8 @@ function ChannelRow({ r }: { r: Row }): React.JSX.Element {
         <Slider id={`mix-pan-${r.key}`} value={r.pan} min={-1} max={1} onChange={(pan) => r.set({ pan })} />
         <span className="meta num-out">{r.pan === 0 ? 'C' : `${r.pan < 0 ? 'L' : 'R'}${Math.round(Math.abs(r.pan) * 100)}`}</span>
       </label>
-      <label className="mix-ctl" title={r.kind === 'vocal' ? 'How much of the vocal preset (reverb, delay, doubles)' : 'Reverb send'}>
-        <span>{r.kind === 'vocal' ? 'Effect' : 'Reverb'}</span>
+      <label className="mix-ctl" title={r.kind === 'notes' ? 'Reverb send' : 'How much of the vocal preset (reverb, delay, doubles)'}>
+        <span>{r.kind === 'notes' ? 'Reverb' : 'Effect'}</span>
         <Slider id={`mix-fx-${r.key}`} value={r.fx} min={0} max={1} onChange={(fx) => r.set({ fx })} />
         <span className="meta num-out">{Math.round(r.fx * 100)}</span>
       </label>
@@ -56,6 +61,7 @@ export function MixerPanel(): React.JSX.Element {
     ...tracks.map(
       (t): Row => ({
         key: `n${t.id}`,
+        track: { kind: 'notes', id: t.id },
         name: t.name,
         color: t.color,
         kind: 'notes',
@@ -70,9 +76,10 @@ export function MixerPanel(): React.JSX.Element {
     ...audio.map(
       (t): Row => ({
         key: `a${t.id}`,
+        track: { kind: 'audio', id: t.id },
         name: t.name,
         color: t.color,
-        kind: 'vocal',
+        kind: t.kind === 'reference' ? 'song' : t.kind === 'stem' ? 'stem' : 'vocal',
         volume: t.volume,
         pan: t.pan,
         fx: t.amount,
@@ -114,6 +121,10 @@ export function MixerPanel(): React.JSX.Element {
           </label>
         </li>
       </ul>
+      <div className="export-all-row">
+        <ExportAllTracksButton />
+        <span className="meta">Each track as its own file (stems line up from the start of the song). The download button on a track exports just that one.</span>
+      </div>
     </>
   )
 }

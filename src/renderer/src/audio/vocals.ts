@@ -2,7 +2,7 @@ import type { AudioClip, AudioTrack } from '../model/audio'
 import { guideLine, scaleOf, songKey } from '../model/guide'
 import { tempoMap, type Song } from '../model/song'
 import { useStore } from '../state/store'
-import { HOP_SEC, type TuneSettings } from './pitch'
+import { HOP_SEC, type TunedNote, type TuneSettings } from './pitch'
 import { ensureTakes, getTake, type TakeData } from './takes'
 import type { TuneReply, TuneRequest } from './tune.worker'
 import TuneWorker from './tune.worker?worker'
@@ -18,9 +18,28 @@ interface Processed {
   rate: number
   /** output pitch per 10 ms frame (MIDI, NaN unvoiced) */
   pitch: Float32Array
+  notes: TunedNote[]
 }
 
 const done = new Map<string, Processed>()
+/** the last version made for each clip's take, played while a newer one is being made */
+const latest = new Map<string, Processed>()
+/** tuned audio kept around, in samples; the least recently used versions go first */
+const CACHE_SAMPLES = 64e6
+
+function remember(key: string, p: Processed): void {
+  done.delete(key)
+  done.set(key, p)
+  let total = 0
+  for (const v of done.values()) total += v.pcm.length
+  const inUse = new Set(latest.values())
+  for (const [k, v] of done) {
+    if (total <= CACHE_SAMPLES) break
+    if (inUse.has(v) || k === key) continue
+    done.delete(k)
+    total -= v.pcm.length
+  }
+}
 const f0Cache = new Map<string, Float32Array>()
 const pending = new Map<string, Promise<Processed | null>>()
 let worker: Worker | null = null
@@ -64,7 +83,8 @@ function buildSettings(song: Song, track: AudioTrack, clip: AudioClip, take: Tak
     scale,
     transpose: track.transpose,
     detune: track.detune,
-    formant: track.formant
+    formant: track.formant,
+    edits: clip.edits?.[clip.takes[clip.active]]
   }
   if (track.tune.mode === 'guide') {
     const startSec = tempoMap(song).tickToSec(clip.tick) - clip.offset
@@ -75,10 +95,13 @@ function buildSettings(song: Song, track: AudioTrack, clip: AudioClip, take: Tak
 }
 
 const keyOf = (takeId: string, s: TuneSettings): string =>
-  [takeId, s.mode, s.speed.toFixed(2), s.transpose, s.detune, s.formant.toFixed(2), s.scale.join('.'), hash(s.guide)].join('|')
+  [takeId, s.mode, s.speed.toFixed(2), s.transpose, s.detune, s.formant.toFixed(2), s.scale.join('.'), hash(s.guide), JSON.stringify(s.edits ?? [])].join('|')
 
-/** The audio to play for a clip right now: its processed take if ready, else the raw take (and start processing). */
-export function clipAudio(song: Song, track: AudioTrack, clip: AudioClip): { pcm: Float32Array; rate: number; right?: Float32Array; pitch?: Float32Array } | null {
+/**
+ * The audio to play for a clip right now: its processed take if ready, else the last version made
+ * for it, else the raw take (and start processing).
+ */
+export function clipAudio(song: Song, track: AudioTrack, clip: AudioClip): { pcm: Float32Array; rate: number; right?: Float32Array; pitch?: Float32Array; notes?: TunedNote[] } | null {
   const takeId = clip.takes[clip.active]
   const take = takeId ? getTake(takeId) : undefined
   if (!take) return null
@@ -86,10 +109,15 @@ export function clipAudio(song: Song, track: AudioTrack, clip: AudioClip): { pcm
   if (track.kind && track.kind !== 'vocal') return take
   const settings = tuneSettings(song, track, clip, take)
   const key = keyOf(takeId, settings)
+  const slot = `${track.id}:${clip.id}:${takeId}`
   const ready = done.get(key)
-  if (ready) return ready
+  if (ready) {
+    if (latest.get(slot) !== ready) remember(key, ready)
+    latest.set(slot, ready)
+    return ready
+  }
   void process(takeId, take, settings, key)
-  return take
+  return latest.get(slot) ?? take
 }
 
 /** Processes a take (once per distinct settings) and resolves when it's ready. */
@@ -104,8 +132,8 @@ export function process(takeId: string, take: TakeData, settings: TuneSettings, 
       pending.delete(key)
       if (!r.pcm || !r.pitch) return resolve(null)
       if (r.f0) f0Cache.set(takeId, r.f0)
-      const result = { key, pcm: r.pcm, rate: take.rate, pitch: r.pitch }
-      done.set(key, result)
+      const result = { key, pcm: r.pcm, rate: take.rate, pitch: r.pitch, notes: r.notes ?? [] }
+      remember(key, result)
       // ping views so the new pitch line and audio are picked up
       useStore.setState((s) => ({ vocalVersion: s.vocalVersion + 1 }))
       resolve(result)
@@ -135,6 +163,32 @@ export async function processAll(song: Song): Promise<void> {
 export function clipPitch(song: Song, track: AudioTrack, clip: AudioClip): Float32Array | null {
   const a = clipAudio(song, track, clip)
   return a && 'pitch' in a && a.pitch ? a.pitch : null
+}
+
+/** A vocal track's sung notes, clip by clip, placed on the song timeline (for editing pitch by hand). */
+export interface ClipNotes {
+  clipId: number
+  takeId: string
+  /** song time where the take's first frame plays */
+  origin: number
+  /** the part of the take the clip plays, in song seconds */
+  from: number
+  to: number
+  notes: TunedNote[]
+}
+
+export function vocalNotes(song: Song, trackId: number): ClipNotes[] {
+  const t = song.audioTracks.find((x) => x.id === trackId)
+  if (!t || (t.kind && t.kind !== 'vocal')) return []
+  const map = tempoMap(song)
+  const out: ClipNotes[] = []
+  for (const c of t.clips) {
+    const a = clipAudio(song, t, c)
+    if (!a?.notes) continue
+    const from = map.tickToSec(c.tick)
+    out.push({ clipId: c.id, takeId: c.takes[c.active], origin: from - c.offset, from, to: from + c.duration, notes: a.notes })
+  }
+  return out
 }
 
 /** How many takes are still being autotuned. */

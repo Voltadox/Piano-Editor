@@ -243,14 +243,14 @@ export interface ViewClock {
  */
 export function viewClock(): ViewClock {
   const { recording, studio, playing, vocalRec } = getState()
-  if (vocalRec) return { rising: false, time: engine.time(), songVisible: true, live: undefined }
+  if (vocalRec) return { rising: false, time: engine.heardTime(), songVisible: true, live: undefined }
   if (recording) return { rising: true, time: engine.time(), songVisible: true, live: liveTake() }
   if (studio && playing) return { rising: true, time: engine.time(), songVisible: true, live: liveTrail(engine.time()) }
   if (studio) {
     const t = wallNow()
     return { rising: true, time: t, songVisible: false, live: liveTrail(t) }
   }
-  return { rising: false, time: engine.time(), songVisible: true, live: undefined }
+  return { rising: false, time: engine.heardTime(), songVisible: true, live: undefined }
 }
 
 export function toggleStudio(): void {

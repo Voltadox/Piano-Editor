@@ -23,6 +23,15 @@ export interface VocalRecording {
   pass: number
 }
 
+/** One sung note in a vocal clip: its take, and where it is in the take (seconds). */
+export interface VocalNoteRef {
+  trackId: number
+  clipId: number
+  takeId: string
+  start: number
+  end: number
+}
+
 export interface RecentFile {
   path: string
   name: string
@@ -64,6 +73,10 @@ export interface EditorState {
   vocalRec: VocalRecording | null
   /** show the pitch you're singing on the keys (opens the microphone) */
   showPitch: boolean
+  /** the active vocal track's sung notes are shown on the stage to move by hand */
+  pitchEdit: boolean
+  /** right-click menu for one sung note while editing pitch */
+  vocalNoteMenu: VocalNoteRef & { x: number; y: number } | null
   /** the drum pattern the Beat tab is editing */
   beatPattern: number
   playing: boolean
@@ -153,6 +166,8 @@ export const useStore = create<EditorState>()((set, get) => ({
   guideVolume: loadPref('guideVolume', 0.3),
   vocalRec: null,
   showPitch: false,
+  pitchEdit: false,
+  vocalNoteMenu: null,
   beatPattern: -1,
   playing: false,
   recording: false,

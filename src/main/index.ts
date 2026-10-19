@@ -128,6 +128,11 @@ ipcMain.handle('save-dialog', async (_e, kind: FilterKind, defaultName: string) 
   return res.canceled || !res.filePath ? null : res.filePath
 })
 
+ipcMain.handle('pick-folder', async () => {
+  const res = await dialog.showOpenDialog(win!, { title: 'Choose a folder for the tracks', properties: ['openDirectory', 'createDirectory'] })
+  return res.canceled || !res.filePaths[0] ? null : res.filePaths[0]
+})
+
 ipcMain.handle('write-file', async (_e, path: string, data: Uint8Array) => {
   await writeFile(path, data)
   return { path, name: basename(path) }

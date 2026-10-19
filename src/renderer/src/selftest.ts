@@ -1,5 +1,5 @@
 import { engine } from './audio/engine'
-import { DEFAULT_VIDEO, exportAudio, exportVideo } from './actions/export'
+import { DEFAULT_VIDEO, exportAllTracks, exportAudio, exportVideo } from './actions/export'
 import { applyBackupFont, loadMidiBytes, loadSoundfontBytes } from './actions/files'
 import { SoundBankLoader, SpessaSynthProcessor } from 'spessasynth_core'
 import { setLoop, setPlaybackRate, toggleMetronome, toggleRecord, toggleStudio } from './actions/transport'
@@ -10,13 +10,14 @@ import { packProject, unpackProject } from './actions/project'
 import { usePresetBackground } from './actions/look'
 import { detectPitch, pitchShifts, psola } from './audio/pitch'
 import { addTake, getTake } from './audio/takes'
-import { encodeWavMono } from './audio/wav'
+import { decodeWavMono, encodeWavMono } from './audio/wav'
 import { closeMic, loadRecorderWorklet, micLevel, openMic } from './audio/vocalRecorder'
-import { processAll } from './audio/vocals'
+import { clipAudio, processAll, vocalLines, vocalNotes } from './audio/vocals'
+import { drawScene } from './view/draw'
 import { addSection, copyReferenceGroove, duplicateSection, generateDrums, moveSection } from './state/arrange'
 import { chordLabel, importReferenceAudio, keyLabel, setChordAt } from './actions/reference'
 import { findLyrics, listenTo, separateReference } from './actions/separate'
-import { addAudioTrack, addRecordedPasses } from './state/vocalEdit'
+import { addAudioTrack, addRecordedPasses, setNoteEdit } from './state/vocalEdit'
 import { selectAll, selectionSustained, setSustain } from './state/edit'
 import { writeMidiFile } from './model/midiio'
 import { emptySong, tempoMap, ticksPerBar } from './model/song'
@@ -229,11 +230,56 @@ export async function runSelftest(arg: string): Promise<void> {
       await window.keyfall.selftestCapture(`${outDir}/window-ribbon-a.png`)
       await wait(700)
       await window.keyfall.selftestCapture(`${outDir}/window-ribbon.png`)
+      // pitch by hand: move the sung note up a tone, and check the tuned audio went with it
+      {
+        const [clipNotes] = vocalNotes(getState().song, trackId)
+        const note = clipNotes?.notes[0]
+        log('pitch edit: notes found', clipNotes?.notes.length, note ? `first ${note.sung.toFixed(2)} -> ${note.target}` : '')
+        if (clipNotes && note) {
+          getState().set({ pitchEdit: true, activeAudioId: trackId })
+          setNoteEdit({ trackId, clipId: clipNotes.clipId, takeId: clipNotes.takeId, start: note.start * 0.01, end: note.end * 0.01 }, note.target + 2)
+          await processAll(getState().song)
+          const t = getState().song.audioTracks.find((x) => x.id === trackId)!
+          const a = clipAudio(getState().song, t, t.clips[0])!
+          log('pitch edit: edited note now', a.notes?.[0]?.target, 'edited', a.notes?.[0]?.edited, '· sounds at', median(detectPitch(a.pcm, rate)).toFixed(1), 'Hz (B3 = 246.9)')
+          // the hidden window doesn't repaint, so draw the stage straight into a canvas of our own
+          const cv = document.createElement('canvas')
+          cv.width = 1280
+          cv.height = 720
+          const map = tempoMap(getState().song)
+          const start = map.tickToSec(t.clips[0].tick)
+          const layer = { color: t.color, clips: vocalNotes(getState().song, trackId), drag: null, hover: { clipId: clipNotes.clipId, start: note.start } }
+          drawScene(cv.getContext('2d')!, { song: getState().song, width: 1280, height: 720, time: start - 0.3, pxPerSec: 200, keyboardHeight: 140, vocals: vocalLines(getState().song), vocalNotes: layer })
+          const png = await new Promise<Blob>((r) => cv.toBlob((b) => r(b!), 'image/png'))
+          await window.keyfall.writeFile(`${outDir}/stage-pitch-edit.png`, new Uint8Array(await png.arrayBuffer()))
+          getState().set({ pitchEdit: false })
+          getState().undo()
+        }
+      }
       const packed = await packProject(getState().song)
       const back = unpackProject(packed)
       log('project file', (packed.length / 1024).toFixed(0), 'KB · reopened vocal tracks', back.audioTracks.length, 'clips', back.audioTracks[0]?.clips.length, 'take found', !!getTake(back.audioTracks[0]?.clips[0]?.takes[0] ?? ''))
       await exportAudio('wav', `${outDir}/selftest-vocals.wav`)
       log('export with vocals:', getState().toast?.text)
+      // every track as its own WAV, read back: each should run the full song, and the vocal sit near the notes' level
+      await exportAllTracks('wav', outDir)
+      log('stems:', getState().toast?.text)
+      const clean = (s: string): string => s.replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, ' ').trim()
+      const rms = (x: Float32Array): number => {
+        let s = 0
+        let n = 0
+        for (const v of x) if (Math.abs(v) > 0.003) [s, n] = [s + v * v, n + 1]
+        return n ? Math.sqrt(s / n) : 0
+      }
+      for (const t of [...getState().song.tracks.filter((x) => x.notes.length), ...getState().song.audioTracks]) {
+        const f = await window.keyfall.readFile(`${outDir}/${clean(getState().fileName)} - ${clean(t.name)}.wav`)
+        if (!f) {
+          log('stem missing for', t.name)
+          continue
+        }
+        const w = decodeWavMono(f.data)
+        log(`stem ${t.name}: ${(w.pcm.length / w.rate).toFixed(1)} s · level ${(20 * Math.log10(rms(w.pcm) || 1e-9)).toFixed(1)} dBFS`)
+      }
     }
 
     // beat generated to follow the demo song

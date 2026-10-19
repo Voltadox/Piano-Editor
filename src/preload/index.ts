@@ -13,6 +13,7 @@ const api = {
   readFile: (path: string): Promise<LoadedFile | null> => ipcRenderer.invoke('read-file', path),
   saveDialog: (kind: FilterKind, defaultName: string): Promise<string | null> =>
     ipcRenderer.invoke('save-dialog', kind, defaultName),
+  pickFolder: (): Promise<string | null> => ipcRenderer.invoke('pick-folder'),
   writeFile: (path: string, data: Uint8Array): Promise<{ path: string; name: string }> =>
     ipcRenderer.invoke('write-file', path, data),
   setDirty: (dirty: boolean): void => ipcRenderer.send('set-dirty', dirty),

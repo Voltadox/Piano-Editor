@@ -2,14 +2,17 @@ import { useEffect, useRef } from 'react'
 import { engine } from '../audio/engine'
 import { HIGHEST, LOWEST, lowerBound, snapTicks, snapTo, tempoMap, trackTimes, type Note } from '../model/song'
 import { addNote, deleteNotes, mapNotes } from '../state/edit'
-import { getState } from '../state/store'
+import { getState, type VocalNoteRef } from '../state/store'
+import { setNoteEdit } from '../state/vocalEdit'
+import { getTake } from '../audio/takes'
 import { pressKey, releaseKey } from '../audio/midiInput'
-import { livePitch } from '../audio/vocalRecorder'
-import { vocalLines } from '../audio/vocals'
+import { livePitch, livePitchDelay } from '../audio/vocalRecorder'
+import { process, tuneSettings, vocalLines, vocalNotes, type ClipNotes } from '../audio/vocals'
+import { HOP_SEC } from '../audio/pitch'
 import { melodyPitchAt } from '../model/guide'
 import { chordLabel } from '../actions/reference'
 import { countdown, viewClock } from '../actions/transport'
-import { chordPillAt, drawScene, hitNote, keyLayout, lyricsAt, pianoKeyLength, type Scene } from './draw'
+import { chordPillAt, drawScene, hitNote, hitVocalNote, keyLayout, lyricsAt, pianoKeyLength, pitchAtX, type Scene, type VocalNotesLayer } from './draw'
 
 type Box = { x0: number; y0: number; x1: number; y1: number }
 
@@ -20,13 +23,41 @@ type Drag =
   | { kind: 'draw'; noteId: number; startTick: number }
   | { kind: 'box'; box: Box; additive: Set<number> }
   | { kind: 'key'; pitch: number; ch: number }
+  | { kind: 'vnote'; ref: VocalNoteRef; clipId: number; start: number; base: number; x0: number; pitch: number }
 
 /** Your sung pitch for the stage, while it's shown or a vocal take is recording. */
 function livePitchFor(st: ReturnType<typeof getState>): { midi: number; target: number | null } | null {
   if (!st.showPitch && !st.vocalRec) return null
   const midi = livePitch()
   if (midi === null) return null
-  return { midi, target: melodyPitchAt(st.song, engine.time()) }
+  // judged against the note that was playing when it was sung
+  return { midi, target: melodyPitchAt(st.song, engine.heardTime() - livePitchDelay()) }
+}
+
+/** The vocal track whose notes are being edited by hand, if pitch editing is on. */
+function pitchEditTrack(st: ReturnType<typeof getState>) {
+  if (!st.pitchEdit) return null
+  const vocal = st.song.audioTracks.filter((t) => !t.kind || t.kind === 'vocal')
+  return vocal.find((t) => t.id === st.activeAudioId) ?? vocal[0] ?? null
+}
+
+const noteRef = (trackId: number, c: ClipNotes, n: ClipNotes['notes'][number]): VocalNoteRef => ({
+  trackId,
+  clipId: c.clipId,
+  takeId: c.takeId,
+  start: n.start * HOP_SEC,
+  end: n.end * HOP_SEC
+})
+
+/** Plays a note just moved by hand once its new version is ready (while stopped; playing, it's heard in place). */
+async function auditionNote(ref: VocalNoteRef): Promise<void> {
+  const st = getState()
+  const track = st.song.audioTracks.find((t) => t.id === ref.trackId)
+  const clip = track?.clips.find((c) => c.id === ref.clipId)
+  const take = getTake(ref.takeId)
+  if (st.playing || !track || !clip || !take) return
+  const done = await process(ref.takeId, take, tuneSettings(st.song, track, clip, take))
+  if (done && !getState().playing) void engine.playSnippet(track, done.pcm, done.rate, ref.start, Math.max(0.08, ref.end - ref.start))
 }
 
 export const keyboardHeight = (w: number, h: number): number => Math.round(Math.min(h * 0.24, Math.max(90, pianoKeyLength(w))))
@@ -38,6 +69,7 @@ export function FallView(): React.JSX.Element {
   const drag = useRef<Drag | null>(null)
   const hoverId = useRef<number | undefined>(undefined)
   const box = useRef<Box | null>(null)
+  const vHover = useRef<{ clipId: number; start: number } | null>(null)
 
   const scene = (): Scene => {
     const st = getState()
@@ -63,6 +95,7 @@ export function FallView(): React.JSX.Element {
       loop: st.loop && st.loopOn && clock.songVisible ? { start: map.tickToSec(st.loop.start), end: map.tickToSec(st.loop.end) } : null,
       hints: st.studio && st.studioChords ? st.studioHint : null,
       vocals: clock.songVisible ? vocalLines(st.song) : undefined,
+      vocalNotes: vocalLayer(st),
       sections: st.song.sections,
       livePitch: livePitchFor(st),
       lyrics: st.song.lyrics.length ? lyricsAt(st.song.lyrics.map((l) => ({ start: map.tickToSec(l.tick), end: map.tickToSec(l.end), text: l.text })), clock.time) : null,
@@ -70,6 +103,18 @@ export function FallView(): React.JSX.Element {
       countdown: countdown(),
       theme: st.theme,
       bgImage: st.bgImage
+    }
+  }
+
+  const vocalLayer = (st: ReturnType<typeof getState>): VocalNotesLayer | null => {
+    const t = pitchEditTrack(st)
+    if (!t) return null
+    const d = drag.current
+    return {
+      color: t.color,
+      clips: vocalNotes(st.song, t.id),
+      hover: vHover.current,
+      drag: d?.kind === 'vnote' ? { clipId: d.clipId, start: d.start, pitch: d.pitch } : null
     }
   }
 
@@ -173,6 +218,20 @@ export function FallView(): React.JSX.Element {
     // the view runs upward while recording and in Studio mode; note editing waits until it stops
     if (s.rising) return
 
+    // editing pitch: sung notes are what the pointer works on, the piano notes stay put
+    const vtrack = pitchEditTrack(st)
+    if (vtrack) {
+      const v = hitVocalNote(s, x, y)
+      if (!v) return
+      const ref = noteRef(vtrack.id, v.clip, v.note)
+      if (e.button === 2) st.set({ vocalNoteMenu: { ...ref, x: e.clientX, y: e.clientY } })
+      else {
+        const base = Number.isNaN(v.note.target) ? Math.round(v.note.sung) : v.note.target
+        drag.current = { kind: 'vnote', ref, clipId: v.clip.clipId, start: v.note.start, base, x0: x, pitch: base }
+      }
+      return
+    }
+
     const hit = hitNote(s, x, y)
     if (e.button === 2) {
       // right-click deletes an unselected note; with a selection it opens the selection menu
@@ -227,6 +286,12 @@ export function FallView(): React.JSX.Element {
     const st = getState()
     if (!d) {
       const s = scene()
+      if (s.vocalNotes) {
+        const v = s.rising ? null : hitVocalNote(s, x, y)
+        vHover.current = v ? { clipId: v.clip.clipId, start: v.note.start } : null
+        canvasRef.current!.style.cursor = v ? 'ew-resize' : 'default'
+        return
+      }
       const hit = s.rising ? null : hitNote(s, x, y)
       hoverId.current = hit?.noteId
       const c = canvasRef.current!
@@ -305,6 +370,12 @@ export function FallView(): React.JSX.Element {
         st.setSelection(notesInBox(d.box, d.additive))
         break
       }
+      case 'vnote': {
+        // snapped to whole notes; Alt bends freely
+        const moved = d.base + pitchAtX(scene().width, x) - pitchAtX(scene().width, d.x0)
+        d.pitch = e.altKey ? Math.round(moved * 100) / 100 : Math.round(moved)
+        break
+      }
       case 'key': {
         const s = scene()
         const pitch = keyLayout(s.width).pitchAt(x)
@@ -325,6 +396,13 @@ export function FallView(): React.JSX.Element {
     if (!d) return
     if (d.kind === 'key') {
       releaseKey(d.pitch)
+      return
+    }
+    if (d.kind === 'vnote') {
+      if (d.pitch !== d.base) {
+        setNoteEdit(d.ref, d.pitch)
+        void auditionNote(d.ref)
+      }
       return
     }
     if (d.kind !== 'box') getState().endGesture()
@@ -356,6 +434,17 @@ export function FallView(): React.JSX.Element {
   const onDoubleClick = (e: React.MouseEvent): void => {
     const { x, y } = local(e)
     const s = scene()
+    const vtrack = pitchEditTrack(getState())
+    if (vtrack) {
+      // a double-click hands the note back to autotune
+      const v = hitVocalNote(s, x, y)
+      if (v?.note.edited) {
+        const ref = noteRef(vtrack.id, v.clip, v.note)
+        setNoteEdit(ref, undefined)
+        void auditionNote(ref)
+      }
+      return
+    }
     if (s.rising || y >= s.height - s.keyboardHeight || hitNote(s, x, y) || getState().tool === 'draw') return
     createNote(x, y, defaultLen())
   }
@@ -379,7 +468,10 @@ export function FallView(): React.JSX.Element {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        onPointerLeave={() => (hoverId.current = undefined)}
+        onPointerLeave={() => {
+          hoverId.current = undefined
+          vHover.current = null
+        }}
         onDoubleClick={onDoubleClick}
         onWheel={onWheel}
         onContextMenu={(e) => e.preventDefault()}
