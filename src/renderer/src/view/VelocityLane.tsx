@@ -26,7 +26,7 @@ export function VelocityLane(): React.JSX.Element {
     const h = canvas.clientHeight
     const clock = viewClock()
     const a = timeAxis({ height: h, keyboardHeight: keyboardHeight(stageW, h), pxPerSec: getState().pxPerSec, time: clock.time, rising: clock.rising })
-    return { a, h, live: clock.rising, songVisible: clock.songVisible }
+    return { a, h, live: clock.rising || getState().recording, songVisible: clock.songVisible }
   }
 
   const editable = (): ((n: Note, trackId: number) => boolean) => {

@@ -2,8 +2,24 @@ import { BUILTIN_FONT, fontName, readPresets } from '../audio/fontSlots'
 import type { AuditionPart, RemakeReply, RemakeRequest, Score } from '../audio/remake.worker'
 import RemakeWorker from '../audio/remake.worker?worker'
 import { getTake } from '../audio/takes'
-import { auditionWindows, bassLine, BAND_RATE, drumNotes, isGeneralMidi, keysPart, suits, volumeFor, type Hit, type PartNote } from '../model/remake'
-import { DRUM_CHANNEL, newId, newTrack, sortNotes, tempoMap, type RemakePart, type SoundChoice, type Song, type Track } from '../model/song'
+import {
+  auditionWindows,
+  bassLine,
+  BAND_RATE,
+  drumNotes,
+  isGeneralMidi,
+  keysPart,
+  KEYS_LEVELS,
+  simplifyKeys,
+  suits,
+  volumeFor,
+  type DetailContext,
+  type Hit,
+  type PartNote,
+  type Placed
+} from '../model/remake'
+import { DRUM_CHANNEL, newId, newTrack, sortNotes, tempoMap, ticksPerBar, type RemakePart, type SoundChoice, type Song, type Track } from '../model/song'
+import { loadPref, savePref } from '../state/prefs'
 import { getState } from '../state/store'
 import { referenceTrack } from './reference'
 import { resample, separateReference } from './separate'
@@ -306,7 +322,7 @@ export async function remakeBacking(want: RemakePart[] = PARTS.map((p) => p.part
     const made = PARTS.filter((p) => choices.get(p.part)?.length)
     const missed = want.filter((p) => !choices.get(p)?.length)
     getState().notify(
-      `Recreated ${made.map((p) => `the ${partName(p.part)} on ${describe(choices.get(p.part)![0])}`).join(', ')}${missed.length ? ` (no ${missed.map(partName).join(' or ')} heard)` : ''}. You're hearing the remake with the song's vocals; switch in Listen to. Click a track in the Tracks tab and press Q to tidy its timing.`
+      `Recreated ${made.map((p) => `the ${partName(p.part)} on ${describe(choices.get(p.part)![0])}`).join(', ')}${missed.length ? ` (no ${missed.map(partName).join(' or ')} heard)` : ''}.${choices.get('keys')?.length && want.includes('keys') ? ` The keys play at ${KEYS_LEVELS[keysDetailPref()].name} detail; slide Keys detail under Backing track for more or less.` : ''} You're hearing the remake with the song's vocals; switch in Listen to. Click a track in the Tracks tab and press Q to tidy its timing.`
     )
   } catch (err) {
     getState().set({ busy: null })
@@ -328,21 +344,14 @@ const partName = (p: RemakePart): string => (p === 'keys' ? 'chords and lines' :
  * (not in `redo`) keep their tracks.
  */
 function withRemake(song: Song, clipTick: number, clipOffset: number, redo: RemakePart[], notes: Partial<Record<RemakePart, PartNote[]>>, choices: Map<RemakePart, SoundChoice[]>): Song {
-  const map = tempoMap(song)
-  const startSec = map.tickToSec(clipTick) - clipOffset
   const old = new Map(song.tracks.filter((t) => t.remake).map((t) => [t.remake!, t]))
   let tracks = song.tracks.filter((t) => !t.remake || !redo.includes(t.remake))
+  const level = keysDetailPref()
   for (const { part, name, color } of PARTS) {
     const best = choices.get(part)?.[0]
     if (!best || !redo.includes(part)) continue
-    const placed = sortNotes(
-      (notes[part] ?? [])
-        .filter((n) => n.end > clipOffset)
-        .map((n) => {
-          const tick = Math.max(0, Math.round(map.secToTick(startSec + n.start)))
-          return { id: newId(), pitch: n.pitch, tick, dur: Math.max(10, Math.round(map.secToTick(startSec + n.end)) - tick), vel: n.vel }
-        })
-    )
+    const heard = place(song, clipTick, clipOffset, notes[part] ?? [])
+    const placed = sortNotes((part === 'keys' ? simplifyKeys(heard, level, detailContext(song)) : heard).map((n) => ({ id: newId(), ...n })))
     const prev = old.get(part)
     const base = newTrack({ ...song, tracks }, name)
     const t: Track = {
@@ -362,8 +371,48 @@ function withRemake(song: Song, clipTick: number, clipOffset: number, redo: Rema
   }
   const kept = Object.entries(song.reference?.remake ?? {}).filter(([p]) => !redo.includes(p as RemakePart))
   const remake = Object.fromEntries([...kept, ...choices]) as Partial<Record<RemakePart, SoundChoice[]>>
-  const next = { ...song, tracks, reference: { ...song.reference!, remake } }
+  const keys = redo.includes('keys') && choices.get('keys')?.length ? { keysHeard: notes.keys ?? [], keysDetail: level } : {}
+  const next = { ...song, tracks, reference: { ...song.reference!, remake, ...keys } }
   return hearRemake(next, true)
+}
+
+/** Notes heard in the instrumental (seconds into it) placed where the song plays them. */
+function place(song: Song, clipTick: number, clipOffset: number, notes: PartNote[]): Placed[] {
+  const map = tempoMap(song)
+  const startSec = map.tickToSec(clipTick) - clipOffset
+  return notes
+    .filter((n) => n.end > clipOffset)
+    .map((n) => {
+      const tick = Math.max(0, Math.round(map.secToTick(startSec + n.start)))
+      return { pitch: n.pitch, tick, dur: Math.max(10, Math.round(map.secToTick(startSec + n.end)) - tick), vel: n.vel }
+    })
+}
+
+/** What simplifying the keys follows: the grid, the chord lane, and the sung tune if it was found. */
+function detailContext(song: Song): DetailContext {
+  const tune = song.tracks.find((t) => t.role === 'melody')
+  return { ppq: song.ppq, bar: ticksPerBar(song), chords: song.chords, tune: tune?.notes.length ? tune.notes : null }
+}
+
+/** The keys detail last chosen, used for the next remake. */
+export const keysDetailPref = (): number => loadPref('keysDetail', 2)
+
+/**
+ * Plays the remade keys at another level of detail, rebuilt from what was heard (so edits to the
+ * Keys track are replaced). Without a remake, just remembers the level for the next one.
+ */
+export function setKeysDetail(level: number): void {
+  savePref('keysDetail', level)
+  const song = getState().song
+  const ref = song.reference
+  const clip = song.audioTracks.find((t) => t.id === ref?.stems?.instrumental)?.clips[0]
+  if (!ref?.keysHeard || !clip || !song.tracks.some((t) => t.remake === 'keys')) return
+  const notes = sortNotes(simplifyKeys(place(song, clip.tick, clip.offset, ref.keysHeard), level, detailContext(song)).map((n) => ({ id: newId(), ...n })))
+  getState().apply((s) => ({
+    ...s,
+    tracks: s.tracks.map((t) => (t.remake === 'keys' ? { ...t, notes } : t)),
+    reference: s.reference && { ...s.reference, keysDetail: level }
+  }))
 }
 
 /** Mutes or unmutes the remade parts, with the reference and instrumental the other way round. */

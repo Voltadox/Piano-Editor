@@ -112,6 +112,10 @@ export interface ReferenceInfo {
   stems?: { vocals: number; instrumental: number }
   /** for each recreated part, the closest-sounding presets found, best first */
   remake?: Partial<Record<RemakePart, SoundChoice[]>>
+  /** the keys as heard, in seconds into the instrumental, before simplifying (vel 1..127) */
+  keysHeard?: { start: number; end: number; pitch: number; vel: number }[]
+  /** how much of that the Keys track plays: 0 (beginner) up to 4 (everything heard) */
+  keysDetail?: number
 }
 
 /** A preset that could play a recreated part, and how close it came to the song (lower is closer). */

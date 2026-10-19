@@ -1,3 +1,4 @@
+import type { Range } from '../model/timeline'
 import { create } from 'zustand'
 import { demoSong, type Snap, type Song } from '../model/song'
 import type { GuideVoice } from '../model/audio'
@@ -114,6 +115,8 @@ export interface EditorState {
   countIn: number
   /** file each take into Left hand / Right hand tracks */
   splitHands: boolean
+  /** while recording, run the stage upward (what you play rises from the keys) instead of falling */
+  recordRising: boolean
   /** loop region in ticks */
   loop: { start: number; end: number } | null
   loopOn: boolean
@@ -125,6 +128,10 @@ export interface EditorState {
   vocalVersion: number
   /** right-click menu for the selection, at a window position */
   contextMenu: { x: number; y: number } | null
+  /** the timeline view: every track laid out left to right, for editing the song in big pieces */
+  timeline: boolean
+  /** the stretch selected in the timeline */
+  tlRange: Range | null
   /** the menu for changing a chord in the chord lane */
   chordMenu: { x: number; y: number; index: number } | null
   /** playback speed for practice (0.5..1); notes and audio slow down without changing pitch */
@@ -197,6 +204,7 @@ export const useStore = create<EditorState>()((set, get) => ({
   studioHint: null,
   countIn: loadPref('countIn', 1),
   splitHands: loadPref('splitHands', true),
+  recordRising: loadPref('recordRising', false),
   loop: null,
   loopOn: false,
   laneOpen: loadPref('laneOpen', false),
@@ -205,6 +213,8 @@ export const useStore = create<EditorState>()((set, get) => ({
   videoOpen: false,
   vocalVersion: 0,
   contextMenu: null,
+  timeline: loadPref('timeline', false),
+  tlRange: null,
   chordMenu: null,
   rate: 1,
   recovery: null,

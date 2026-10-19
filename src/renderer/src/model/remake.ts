@@ -1,5 +1,5 @@
 import { magnitudes } from '../audio/fft'
-import type { RemakePart } from './song'
+import type { ChordMark, Note, RemakePart } from './song'
 
 /**
  * Recreating a song's backing track as MIDI: drum hits from the separated drums, a bass line from
@@ -362,6 +362,213 @@ export function keysPart(heard: HeardNote[], bass: PartNote[]): PartNote[] {
     .filter((n) => !leak(n))
     .sort((a, b) => a.start - b.start || a.pitch - b.pitch)
     .map((n) => ({ start: n.start, end: n.end, pitch: n.pitch, vel: velOf(n.amp) }))
+}
+
+// ---------- keys detail ----------
+
+/** How much of what was heard the Keys track plays, simplest first. */
+export const KEYS_LEVELS = [
+  { name: 'Beginner', hint: 'the tune in the right hand, one held root per chord in the left' },
+  { name: 'Easy', hint: 'the tune, with the root and fifth of each chord' },
+  { name: 'Medium', hint: 'up to three notes at once: the top line, the bass and one more' },
+  { name: 'Advanced', hint: 'up to five notes at once, faint blips dropped' },
+  { name: 'Full', hint: 'everything heard, up to seven or more keys at once' }
+] as const
+export const FULL_DETAIL = KEYS_LEVELS.length - 1
+
+/** A note placed in the song (ticks), before it gets an id. */
+export type Placed = Omit<Note, 'id'>
+
+export interface DetailContext {
+  ppq: number
+  /** ticks per bar */
+  bar: number
+  /** the chord lane, for the left hand's roots */
+  chords: ChordMark[]
+  /** the sung tune, if the song's melody was found, for the right hand at the simplest levels */
+  tune: Placed[] | null
+}
+
+const median = (x: number[]): number => [...x].sort((a, b) => a - b)[x.length >> 1] ?? 0
+
+/** Notes that start together (within `tol` ticks), in time order. */
+function clusters(notes: Placed[], tol: number): Placed[][] {
+  const out: Placed[][] = []
+  for (const n of [...notes].sort((a, b) => a.tick - b.tick || b.pitch - a.pitch)) {
+    const g = out[out.length - 1]
+    if (g && n.tick - g[0].tick <= tol) g.push(n)
+    else out.push([n])
+  }
+  return out
+}
+
+/** Starts and ends on the grid, at least one step long. */
+function snapNote(n: Placed, grid: number): Placed {
+  const tick = Math.round(n.tick / grid) * grid
+  return { ...n, tick, dur: Math.max(grid, Math.round((n.tick + n.dur) / grid) * grid - tick) }
+}
+
+/** One note at a time: the higher of two starting together, each cut where the next begins. */
+function monophonic(line: Placed[]): Placed[] {
+  const out: Placed[] = []
+  for (const n of [...line].sort((a, b) => a.tick - b.tick || b.pitch - a.pitch)) {
+    const prev = out[out.length - 1]
+    if (prev && prev.tick === n.tick) continue
+    if (prev && prev.tick + prev.dur > n.tick) prev.dur = n.tick - prev.tick
+    out.push({ ...n })
+  }
+  return out
+}
+
+/** A note on the same key as a later one ends before it starts, so neither swallows the other. */
+function untangle(notes: Placed[]): Placed[] {
+  const sorted = [...notes].sort((a, b) => a.tick - b.tick || a.pitch - b.pitch)
+  const out: Placed[] = []
+  const last = new Map<number, Placed>()
+  for (const n of sorted) {
+    const prev = last.get(n.pitch)
+    if (prev && prev.tick === n.tick) {
+      prev.dur = Math.max(prev.dur, n.dur)
+      prev.vel = Math.max(prev.vel, n.vel)
+      continue
+    }
+    if (prev && prev.tick + prev.dur > n.tick) prev.dur = n.tick - prev.tick
+    const copy = { ...n }
+    last.set(n.pitch, copy)
+    out.push(copy)
+  }
+  return out
+}
+
+/**
+ * The right hand's tune: the sung melody if there is one, otherwise the top note of each of the
+ * keys' chords (leaving out quiet ones, which are usually inner voices ringing through). One note
+ * at a time on the grid, moved by octaves as a whole into the middle of the keyboard.
+ */
+function tuneLine(keys: Placed[], ctx: DetailContext, grid: number, hold: boolean): Placed[] {
+  let line: Placed[]
+  if (ctx.tune?.length) line = ctx.tune
+  else {
+    const loud = median(keys.map((n) => n.vel))
+    line = clusters(keys, ctx.ppq / 8)
+      .map((g) => g.reduce((a, b) => (b.pitch > a.pitch ? b : a)))
+      .filter((n) => n.vel >= loud * 0.6)
+  }
+  line = monophonic(line.filter((n) => n.dur >= grid / 2).map((n) => snapNote(n, grid))).filter((n) => n.dur >= grid)
+  // the keys' top note struck again and again is rhythm, not tune: held instead, up to the bar line
+  if (hold && !ctx.tune?.length)
+    line = line.reduce<Placed[]>((out, n) => {
+      const prev = out[out.length - 1]
+      if (prev && prev.pitch === n.pitch && prev.tick + prev.dur === n.tick && Math.floor(prev.tick / ctx.bar) === Math.floor(n.tick / ctx.bar)) prev.dur += n.dur
+      else out.push({ ...n })
+      return out
+    }, [])
+  if (!line.length) return []
+  const shift = 12 * Math.round((70 - median(line.map((n) => n.pitch))) / 12)
+  return line.map((n) => {
+    let p = n.pitch + shift
+    while (p < 60) p += 12
+    while (p > 88) p -= 12
+    return { ...n, pitch: p, vel: 84 }
+  })
+}
+
+/** Where there's no chord lane: each bar's root, the pitch class its lower notes hold longest. */
+function barRoots(keys: Placed[], bar: number): ChordMark[] {
+  const marks: ChordMark[] = []
+  if (!keys.length) return marks
+  const end = Math.max(...keys.map((n) => n.tick + n.dur))
+  for (let at = Math.floor(keys[0].tick / bar) * bar; at < end; at += bar) {
+    const here = keys.filter((n) => n.tick < at + bar && n.tick + n.dur > at)
+    const low = here.filter((n) => n.pitch < 60)
+    const weight = new Array(12).fill(0)
+    for (const n of low.length ? low : here) weight[n.pitch % 12] += Math.min(at + bar, n.tick + n.dur) - Math.max(at, n.tick)
+    const root = weight.some((w) => w > 0) ? weight.indexOf(Math.max(...weight)) : -1
+    if (marks[marks.length - 1]?.root !== root) marks.push({ tick: at, root, minor: false })
+  }
+  return marks
+}
+
+/**
+ * The left hand: each chord's root (with its fifth, at Easy) held, struck again at every bar line
+ * so it keeps time, between `from` and `to`.
+ */
+function rootLine(keys: Placed[], ctx: DetailContext, from: number, to: number, fifth: boolean): Placed[] {
+  const marks = ctx.chords.some((c) => c.root >= 0) ? ctx.chords : barRoots(keys, ctx.bar)
+  const beat = ctx.ppq
+  const gap = ctx.ppq / 16
+  const out: Placed[] = []
+  marks.forEach((c, i) => {
+    const start = Math.max(from, c.tick)
+    const stop = Math.min(to, marks[i + 1]?.tick ?? to)
+    if (c.root < 0 || stop - start < beat / 2) return
+    // the root from C3 up, or from F2 up with its fifth, so both stay below middle C
+    const root = fifth ? 41 + ((((c.root - 41) % 12) + 12) % 12) : 48 + c.root
+    const cuts = [start]
+    for (let b = Math.ceil((start + 1) / ctx.bar) * ctx.bar; b < stop; b += ctx.bar) if (b - cuts[cuts.length - 1] >= beat && stop - b >= beat) cuts.push(b)
+    cuts.push(stop)
+    for (let k = 0; k + 1 < cuts.length; k++) {
+      const dur = Math.max(gap, cuts[k + 1] - cuts[k] - gap)
+      out.push({ pitch: root, tick: cuts[k], dur, vel: 68 })
+      if (fifth) out.push({ pitch: root + 7, tick: cuts[k], dur, vel: 60 })
+    }
+  })
+  return out
+}
+
+/**
+ * At most `most` keys down at once. Of notes starting together, the highest and lowest are kept
+ * first (they carry the tune and the bass), then the loudest and longest. A new chord takes over
+ * from held notes that would go past the limit, oldest first.
+ */
+function thin(keys: Placed[], most: number, tol: number): Placed[] {
+  const out: Placed[] = []
+  for (const g of clusters(keys, tol)) {
+    const at = g[0].tick
+    const pitches = [...new Set(g.map((n) => n.pitch))]
+    const top = Math.max(...pitches)
+    const bottom = Math.min(...pitches)
+    const strength = (n: Placed): number => (n.pitch === top ? 2e9 : n.pitch === bottom ? 1e9 : n.vel * Math.sqrt(n.dur))
+    const take = pitches
+      .map((p) => g.filter((n) => n.pitch === p).reduce((a, b) => (strength(b) > strength(a) ? b : a)))
+      .sort((a, b) => strength(b) - strength(a))
+      .slice(0, most)
+    const held = out.filter((n) => n.tick + n.dur > at).sort((a, b) => a.tick - b.tick)
+    let over = held.length + take.length - most
+    for (const n of held) {
+      if (over <= 0 && !take.some((t) => t.pitch === n.pitch)) continue
+      n.dur = Math.max(1, at - n.tick)
+      over--
+    }
+    out.push(...take.map((n) => ({ ...n })))
+  }
+  return out
+}
+
+/**
+ * The keys at a level of detail, from the Full transcription (`level` FULL_DETAIL) down to a
+ * beginner's two-hand part. The simpler levels also play more evenly, so the part sits under the
+ * song instead of over it.
+ */
+export function simplifyKeys(keys: Placed[], level: number, ctx: DetailContext): Placed[] {
+  if (level >= FULL_DETAIL || !keys.length) return keys.map((n) => ({ ...n }))
+  const tol = ctx.ppq / 8
+  const even = (n: Placed, by: number): Placed => ({ ...n, vel: Math.round(64 + (n.vel - 64) * by) })
+  if (level <= 1) {
+    const grid = level === 0 ? ctx.ppq / 2 : ctx.ppq / 4
+    const tune = tuneLine(keys, ctx, grid, level === 0)
+    const from = Math.min(...keys.map((n) => n.tick), tune[0]?.tick ?? Infinity)
+    const to = Math.max(...keys.map((n) => n.tick + n.dur), ...tune.map((n) => n.tick + n.dur))
+    const left = rootLine(keys, ctx, Math.floor(from / ctx.ppq) * ctx.ppq, to, level === 1)
+    return untangle([...tune, ...left])
+  }
+  if (level === 2) {
+    // no blips or faint notes, on a sixteenth grid
+    const kept = keys.filter((n) => n.dur >= ctx.ppq / 4 && n.vel >= 45)
+    return untangle(thin(kept.map((n) => snapNote(n, ctx.ppq / 4)), 3, tol).map((n) => even(n, 0.6)))
+  }
+  const kept = keys.filter((n) => n.dur >= ctx.ppq / 8 || n.vel >= 60)
+  return untangle(thin(kept, 5, tol).map((n) => even(n, 0.8)))
 }
 
 // ---------- matching sounds ----------

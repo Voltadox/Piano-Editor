@@ -240,8 +240,8 @@ export function FallView(): React.JSX.Element {
       st.set({ chordMenu: { x: e.clientX, y: e.clientY, index: chord } })
       return
     }
-    // the view runs upward while recording and in Studio mode; note editing waits until it stops
-    if (s.rising) return
+    // note editing waits until recording stops (and in Studio mode, while the view runs upward)
+    if (s.rising || st.recording) return
 
     // editing pitch: sung notes are what the pointer works on, the piano notes stay put
     const vtrack = pitchEditTrack(st)
@@ -314,12 +314,12 @@ export function FallView(): React.JSX.Element {
     if (!d) {
       const s = scene()
       if (s.vocalNotes) {
-        const v = s.rising ? null : hitVocalNote(s, x, y)
+        const v = s.rising || st.recording ? null : hitVocalNote(s, x, y)
         vHover.current = v ? { clipId: v.clip.clipId, start: v.note.start } : null
         canvasRef.current!.style.cursor = v ? 'ew-resize' : 'default'
         return
       }
-      const hit = s.rising ? null : hitNote(s, x, y)
+      const hit = s.rising || st.recording ? null : hitNote(s, x, y)
       hoverId.current = hit?.noteId
       const c = canvasRef.current!
       c.style.cursor = chordPillAt(s, x, y) !== null ? 'pointer' : hit ? (hit.part === 'body' ? 'grab' : 'ns-resize') : st.tool === 'draw' ? 'crosshair' : 'default'
@@ -483,7 +483,7 @@ export function FallView(): React.JSX.Element {
       }
       return
     }
-    if (s.rising || y >= s.height - s.keyboardHeight || hitNote(s, x, y) || getState().tool === 'draw') return
+    if (s.rising || getState().recording || y >= s.height - s.keyboardHeight || hitNote(s, x, y) || getState().tool === 'draw') return
     createNote(x, y, defaultLen())
   }
 

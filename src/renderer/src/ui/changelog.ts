@@ -7,6 +7,32 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.6.0',
+    date: '19 October 2026',
+    notes: [
+      'Timeline view: press Tab (or the switch in the top bar) to see every track, vocal and the song itself as lanes running left to right, like a video editor. Section names, the loop and the playhead are on the ruler.',
+      'Drag across lanes to pick some bars (hold Alt for beats), then right-click: Clear them (a vocal break), Repeat them to the end of the song or ×2, ×4, ×8, Loop them, or Remove them from the song so everything after moves back. Del clears, Ctrl+D repeats once.',
+      'Double-click anywhere on the timeline to jump to the falling notes at that point.',
+      'Repeat on the falling notes too: select a loop’s notes, right-click and pick Repeat these bars → To the end of the song.'
+    ]
+  },
+  {
+    version: '0.5.2',
+    date: '19 October 2026',
+    notes: [
+      'Recording keeps the notes falling, so you can see what’s coming next while you play along. To have what you play rise from the keys as before, pick Notes rise from the keys in the recording options (the arrow next to the metronome). Studio mode still rises.'
+    ]
+  },
+  {
+    version: '0.5.1',
+    date: '19 October 2026',
+    notes: [
+      'Keys detail: a slider for how much the recreated keys play, in the Reference tab under Backing track and when opening a song. Beginner is a Synthesia-style beginner’s part (the tune in the right hand, one held root per chord in the left); Easy adds the fifth; Medium allows three keys at once, Advanced five; Full is everything heard, as before.',
+      'The simpler levels also play more evenly, so the keys sit under the song instead of drowning it out. Slide it any time: the Keys track is rebuilt from what was heard. New remakes start at Medium.',
+      'With Melody to sing found, Beginner and Easy play the sung tune in the right hand.'
+    ]
+  },
+  {
     version: '0.5.0',
     date: '19 October 2026',
     notes: [

@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { create } from 'zustand'
 import { importChoices, saveImportChoices, type ImportChoices } from '../actions/reference'
+import { keysDetailPref } from '../actions/remake'
+import { savePref } from '../state/prefs'
+import { KeysDetail } from './KeysDetail'
 import * as I from './icons'
 
 /** The song waiting to be brought in, and who's waiting for the answer. */
@@ -49,12 +52,18 @@ const GROUPS: { title: string; hint: string; items: { key: Key; label: string; h
 export function ImportDialog(): React.JSX.Element | null {
   const { name, resolve } = useAsk()
   const [c, setC] = useState<ImportChoices>(importChoices)
+  const [detail, setDetail] = useState(keysDetailPref)
   useEffect(() => {
-    if (name) setC(importChoices())
+    if (!name) return
+    setC(importChoices())
+    setDetail(keysDetailPref())
   }, [name])
 
   const finish = (choices: ImportChoices | null): void => {
-    if (choices) saveImportChoices(choices)
+    if (choices) {
+      saveImportChoices(choices)
+      savePref('keysDetail', detail)
+    }
     resolve?.(choices)
     useAsk.setState({ name: null, resolve: null })
   }
@@ -95,10 +104,17 @@ export function ImportDialog(): React.JSX.Element | null {
               {g.items.map((it) => {
                 const off = it.needs ? !c[it.needs] : false
                 return (
-                  <label key={it.key} className={`check import-item${off ? ' off' : ''}`}>
-                    <input id={`import-${it.key}`} type="checkbox" checked={c[it.key]} disabled={off} onChange={(e) => set(it.key, e.target.checked)} />
-                    <span>{it.label}</span> <span className="meta">{off ? 'needs chord names' : it.hint}</span>
-                  </label>
+                  <Fragment key={it.key}>
+                    <label className={`check import-item${off ? ' off' : ''}`}>
+                      <input id={`import-${it.key}`} type="checkbox" checked={c[it.key]} disabled={off} onChange={(e) => set(it.key, e.target.checked)} />
+                      <span>{it.label}</span> <span className="meta">{off ? 'needs chord names' : it.hint}</span>
+                    </label>
+                    {it.key === 'keys' && c.keys && (
+                      <div className="import-detail">
+                        <KeysDetail id="import-keys-detail" value={detail} onChange={setDetail} />
+                      </div>
+                    )}
+                  </Fragment>
                 )
               })}
             </section>

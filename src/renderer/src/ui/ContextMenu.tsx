@@ -3,6 +3,9 @@ import { deleteNotes, quantize, selectionSustained, selectSamePitch, setSustain,
 import { getState, useStore } from '../state/store'
 import { fitChoices, fitToBars } from '../actions/fitBars'
 import { setNoteEdit } from '../state/vocalEdit'
+import { repeatSelection } from '../actions/timeline'
+import { arrangeEnd } from '../model/timeline'
+import { ticksPerBar } from '../model/song'
 
 /** Right-click menu for the selected notes. */
 export function ContextMenu(): React.JSX.Element | null {
@@ -38,7 +41,7 @@ export function ContextMenu(): React.JSX.Element | null {
   }
   // keep the menu inside the window
   const left = Math.min(at.x, window.innerWidth - 250)
-  const top = Math.min(at.y, window.innerHeight - 420)
+  const top = Math.min(at.y, window.innerHeight - 520)
 
   return (
     <div ref={ref} className="menu context" role="menu" style={{ left, top }} onContextMenu={(e) => e.preventDefault()}>
@@ -52,6 +55,7 @@ export function ContextMenu(): React.JSX.Element | null {
       <button role="menuitem" onClick={run(() => transpose(new Set(getState().selection), 12))}>Up an octave <span className="kbd">Shift+↑</span></button>
       <button role="menuitem" onClick={run(() => transpose(new Set(getState().selection), -12))}>Down an octave <span className="kbd">Shift+↓</span></button>
       <FitBars run={run} />
+      <RepeatBars run={run} />
       <button role="menuitem" onClick={run(selectSamePitch)}>Select same pitch <span className="kbd">Ctrl+Shift+P</span></button>
       <button role="menuitem" className="danger" onClick={run(() => deleteNotes(new Set(getState().selection)))}>Delete <span className="kbd">Del</span></button>
     </div>
@@ -75,6 +79,26 @@ export function FitBars({ run }: { run: (fn: () => void) => () => void }): React
           {f.bars} bar{f.bars === 1 ? '' : 's'} <span className="kbd">{Math.round(f.bpm)} BPM</span>
         </button>
       ))}
+    </>
+  )
+}
+
+/** Repeat the selected notes' bars: to the end of the song (when something carries on past them), or a number of times. */
+function RepeatBars({ run }: { run: (fn: () => void) => () => void }): React.JSX.Element {
+  const { song, selection } = getState()
+  let hi = -Infinity
+  for (const t of song.tracks) for (const n of t.notes) if (selection.has(n.id)) hi = Math.max(hi, n.tick + n.dur)
+  const bar = ticksPerBar(song)
+  const toEnd = arrangeEnd(song) > Math.ceil(hi / bar) * bar
+  return (
+    <>
+      <div className="menu-label" title="Copies the selected notes into the bars after them, again and again">Repeat these bars</div>
+      {toEnd && <button role="menuitem" onClick={run(() => repeatSelection('end'))}>To the end of the song</button>}
+      <div className="menu-row">
+        {[1, 3, 7].map((n) => (
+          <button key={n} role="menuitem" title={`${n + 1} times in all`} onClick={run(() => repeatSelection(n))}>×{n + 1}</button>
+        ))}
+      </div>
     </>
   )
 }

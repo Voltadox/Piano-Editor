@@ -82,6 +82,14 @@ export const HELP: HelpSection[] = [
         a: 'Type a new BPM in the tempo box in the top bar and press Enter, and pick the time signature from the menu beside it. A * after BPM means the file has tempo changes; the box sets the starting tempo.'
       },
       {
+        q: 'How do I repeat a loop across the whole song?',
+        a: 'Select the loop’s notes (Ctrl+L selects the notes inside the loop), right-click and pick Repeat these bars → To the end of the song, or ×2, ×4, ×8. In the timeline (Tab), drag across the bars and lanes you want and right-click for the same choices.'
+      },
+      {
+        q: 'What is the timeline?',
+        a: 'Press Tab (or the switch in the top bar) for a view of every track laid out left to right, like a video editor: note tracks, vocals, the song and its stems, each in its own lane.\n- Drag across lanes to pick bars (hold Alt to pick beats). Shift+click stretches the selection.\n- Right-click it: Clear silences those bars on those tracks (for a vocal break), Repeat copies them to the end of the song or ×2, ×4, ×8, Loop plays them round, and Remove takes the bars out of the whole song so everything after moves back.\n- Del clears, Ctrl+D repeats once, Esc lets go.\n- Scroll to move along the song, Ctrl+scroll to zoom, Shift+scroll for more lanes. Click the ruler to move the playhead; Shift+drag it to set the loop.\n- Double-click to go to the falling notes at that point. Tab goes back.'
+      },
+      {
         q: 'I played a loop without a click. How do I make it fit the bars?',
         a: 'Select the loop\'s notes (drag a box round them, or click the track in the Tracks tab), right-click, and pick a length under Fit to bars, such as 4 bars. Each choice shows the tempo it gives. Keyfall works out the tempo you played at from where the chords start, sets it, and moves the bar lines so the loop starts on a bar line and fills exactly that many bars. It sounds exactly the same; only the grid moves. The loop then plays round, and Ctrl+Z puts it back.\n\nIt\'s also in the Edit menu. Songs following a reference song keep the reference\'s tempo instead.'
       },
@@ -208,7 +216,7 @@ export const HELP: HelpSection[] = [
     entries: [
       {
         q: 'How do I record what I play?',
-        a: 'Plug in a USB MIDI keyboard (the keyboard icon in the top bar turns green) and press `R`. Recording counts in first, and the view runs upward so what you play grows out of the keys. Press `R` or `Space` to stop. Notes and sustain / soft pedal go into the active track.'
+        a: 'Plug in a USB MIDI keyboard (the keyboard icon in the top bar turns green) and press `R`. Recording counts in first, and the song’s notes keep falling toward the keys so you can see what’s coming. To watch what you play grow out of the keys instead, pick Notes rise from the keys in the recording options (the arrow next to the metronome). Press `R` or `Space` to stop. Notes and sustain / soft pedal go into the active track.'
       },
       {
         q: 'My keyboard isn\'t detected.',
@@ -297,6 +305,10 @@ export const HELP: HelpSection[] = [
       {
         q: 'Can it recreate the backing track as MIDI?',
         a: 'Yes. In the Reference tab, click Recreate the backing track. Keyfall splits the instrumental again into drums, bass and everything else, then turns each into notes:\n- Drums (remake): kick, snare or clap, hi-hats, toms and cymbals on the drum channel.\n- Bass (remake): one note at a time.\n- Keys (remake): the chords and lines on top.\n\nEvery sound in your soundfonts (the design folder, your soundfont list and GeneralUser GS) is tried on each part, and the one that sounds closest to the song plays it, at the song\'s level. Each part is an ordinary track you can edit.\n\nThe first time downloads the drum and bass separators (about 60 MB). A three-minute song takes about a minute. If the vocals haven\'t been separated yet, that happens first.'
+      },
+      {
+        q: 'The recreated keys are too busy. Can they play less?',
+        a: 'Yes. Keys detail, under Backing track in the Reference tab (and in the list when you open a song), sets how much the Keys (remake) track plays:\n- Beginner: like a beginner’s tutorial. The tune in the right hand, one note at a time, and each chord’s root held in the left, struck again every bar.\n- Easy: the same tune, with the root and fifth in the left hand.\n- Medium: up to three keys at once (the top line, the bass and one more), on a sixteenth-note grid.\n- Advanced: up to five keys at once, faint blips dropped.\n- Full: everything heard, sometimes seven or more keys at once.\n\nThe simpler levels play more evenly too, so they sit under the song. Moving the slider rebuilds the track from what was heard, replacing edits to it. If Melody to sing has been found, Beginner and Easy play the sung tune; otherwise the keys’ own top line.'
       },
       {
         q: 'The remake picked the wrong sound for a part.',

@@ -173,6 +173,12 @@ export function toggleSplitHands(): void {
   savePref('splitHands', on)
 }
 
+export function toggleRecordRising(): void {
+  const on = !getState().recordRising
+  getState().set({ recordRising: on })
+  savePref('recordRising', on)
+}
+
 export function setCountIn(bars: number): void {
   getState().set({ countIn: bars })
   savePref('countIn', bars)
@@ -240,13 +246,15 @@ export interface ViewClock {
 }
 
 /**
- * Recording and Studio mode run the stage upward. Studio mode with the transport stopped
- * runs on the wall clock, so a jam trails up the screen without the song moving.
+ * Recording runs the stage downward like playback, so the notes coming up fall toward the keys
+ * (upward if the recording option says so). Studio mode runs it upward; with the transport
+ * stopped it runs on the wall clock, so a jam trails up the screen without the song moving.
  */
 export function viewClock(): ViewClock {
-  const { recording, studio, playing, vocalRec } = getState()
+  const { recording, recordRising, studio, playing, vocalRec } = getState()
   if (vocalRec) return { rising: false, time: engine.heardTime(), songVisible: true, live: undefined }
-  if (recording) return { rising: true, time: engine.time(), songVisible: true, live: liveTake() }
+  if (recording && recordRising) return { rising: true, time: engine.time(), songVisible: true, live: liveTake() }
+  if (recording) return { rising: false, time: engine.heardTime(), songVisible: true, live: undefined }
   if (studio && playing) return { rising: true, time: engine.time(), songVisible: true, live: liveTrail(engine.time()) }
   if (studio) {
     const t = wallNow()

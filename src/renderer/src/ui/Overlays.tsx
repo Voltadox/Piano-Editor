@@ -1,3 +1,4 @@
+import { describeRange } from '../view/Timeline'
 import { useEffect } from 'react'
 import { discardRecovery, restoreRecovery } from '../actions/autosave'
 import { useStore } from '../state/store'
@@ -41,6 +42,22 @@ export function StatusBar(): React.JSX.Element {
   const fileName = useStore((s) => s.fileName)
   const dirty = useStore((s) => s.dirty)
   const active = useStore((s) => s.song.tracks.find((t) => t.id === s.activeTrackId))
+  const timeline = useStore((s) => s.timeline)
+  const range = useStore((s) => s.tlRange)
+  const song = useStore((s) => s.song)
+  if (timeline)
+    return (
+      <footer className="status">
+        <span className="file">{fileName}{dirty ? ' •' : ''}</span>
+        <span>
+          {range
+            ? `${describeRange(song, range)} · Del clears it · Ctrl+D repeats it · right-click for more · Esc lets go`
+            : 'Drag across lanes to pick bars (Alt: beats) · right-click a bar to clear, repeat or remove it · double-click to edit the notes there'}
+        </span>
+        <span className="grow" />
+        <span className="keys">Space play · scroll to move · Ctrl+scroll zoom · Shift+scroll lanes · Tab falling notes</span>
+      </footer>
+    )
   const hint =
     tool === 'draw'
       ? 'Draw: click and drag up to set length · right-click deletes · Alt ignores snap'

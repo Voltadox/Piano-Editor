@@ -17,11 +17,12 @@ import { SNAPS, tempoMap, ticksPerBar, ticksPerBeat, type Snap } from '../model/
 import { choosePreset, invertSelection, quantize, selectAll, selectRange, selectSamePitch, selectTrack, setTempo, setTimeSig } from '../state/edit'
 import { savePref } from '../state/prefs'
 import { useStore, getState } from '../state/store'
-import { setCountIn, togglePlay, toggleLoop, toggleMetronome, toggleRecord, toggleSplitHands, toggleStudio, goToStart } from '../actions/transport'
+import { setCountIn, togglePlay, toggleLoop, toggleMetronome, toggleRecord, toggleRecordRising, toggleSplitHands, toggleStudio, goToStart } from '../actions/transport'
 import { clearBackground, pickBackgroundImage, setTheme, usePresetBackground } from '../actions/look'
 import { BACKGROUNDS } from '../view/backgrounds'
 import { openHelp } from './HelpDialog'
 import { FitBars } from './ContextMenu'
+import { toggleTimeline } from '../actions/timeline'
 import * as I from './icons'
 
 function fmtTime(sec: number): string {
@@ -244,10 +245,11 @@ function SoundfontMenu(): React.JSX.Element {
   )
 }
 
-/** Recording options: count-in and splitting takes by hand. */
+/** Recording options: count-in, which way the stage runs, and splitting takes by hand. */
 function RecordingMenu(): React.JSX.Element {
   const countIn = useStore((s) => s.countIn)
   const split = useStore((s) => s.splitHands)
+  const rising = useStore((s) => s.recordRising)
   const options = [
     { bars: 0, label: 'No count-in' },
     { bars: 1, label: 'Count in 1 bar' },
@@ -263,6 +265,13 @@ function RecordingMenu(): React.JSX.Element {
               {o.label}
             </button>
           ))}
+          <div className="menu-label">While recording</div>
+          <button role="menuitemradio" aria-checked={!rising} className={!rising ? 'checked' : ''} title="The song's notes fall toward the keys, so you see what's coming next" onClick={run(() => rising && toggleRecordRising())}>
+            Notes fall (see what’s coming)
+          </button>
+          <button role="menuitemradio" aria-checked={rising} className={rising ? 'checked' : ''} title="What you play grows out of the keys and rises away" onClick={run(() => !rising && toggleRecordRising())}>
+            Notes rise from the keys
+          </button>
           <div className="menu-label">After recording</div>
           <button
             role="menuitemcheckbox"
@@ -391,6 +400,7 @@ export function Transport(): React.JSX.Element {
   const playing = useStore((s) => s.playing)
   const recording = useStore((s) => s.recording)
   const tool = useStore((s) => s.tool)
+  const timeline = useStore((s) => s.timeline)
   const snap = useStore((s) => s.snap)
   const pxPerSec = useStore((s) => s.pxPerSec)
   const volume = useStore((s) => s.volume)
@@ -495,6 +505,10 @@ export function Transport(): React.JSX.Element {
       </div>
 
       <div className="group">
+        <div className="seg" role="group" aria-label="View">
+          <button className={!timeline ? 'on' : ''} title="Falling notes: see and edit the notes (Tab switches)" onClick={() => timeline && toggleTimeline()}><I.IconMidi size={16} /></button>
+          <button className={timeline ? 'on' : ''} title="Timeline: every track left to right, to clear, repeat or cut out whole bars (Tab switches)" onClick={() => !timeline && toggleTimeline()}><I.IconTimeline size={16} /></button>
+        </div>
         <div className="seg" role="group" aria-label="Tool">
           <button className={tool === 'select' ? 'on' : ''} title="Select tool (V): drag to box-select, double-click to add" onClick={() => set({ tool: 'select' })}><I.IconSelect size={16} /></button>
           <button className={tool === 'draw' ? 'on' : ''} title="Draw tool (D): click and drag to draw notes" onClick={() => set({ tool: 'draw' })}><I.IconPencil size={16} /></button>

@@ -14,7 +14,9 @@ import { setShowPitch } from '../audio/vocalRecorder'
 import { recordVocals } from '../actions/transport'
 import type { GuideVoice } from '../model/audio'
 import { harmonyTracks } from '../state/vocalEdit'
-import { chooseSound, describe, remakeBacking } from '../actions/remake'
+import { chooseSound, describe, keysDetailPref, remakeBacking, setKeysDetail } from '../actions/remake'
+import { FULL_DETAIL } from '../model/remake'
+import { KeysDetail } from './KeysDetail'
 import { loadPref, savePref } from '../state/prefs'
 import type { RemakePart, SoundChoice } from '../model/song'
 
@@ -64,6 +66,11 @@ export function ReferencePanel(): React.JSX.Element {
   const chordCount = song.chords.filter((c) => c.root >= 0).length
   const remade = song.tracks.filter((t) => t.remake)
   const [parts, toggle] = useRemakeParts()
+  const [detail, setDetailState] = useState(keysDetailPref)
+  const setDetail = (level: number): void => {
+    setDetailState(level)
+    setKeysDetail(level)
+  }
 
   if (!ref || !track) {
     return (
@@ -198,6 +205,7 @@ export function ReferencePanel(): React.JSX.Element {
               The first time downloads the drum and bass separators (60 MB){ref.stems ? '' : ' after separating the vocals'}. A three-minute song takes a minute or two.
             </p>
             <PartTicks parts={parts} toggle={toggle} />
+            {parts.includes('keys') && <KeysDetail id="remake-keys-detail" value={detail} onChange={(v) => setDetail(v)} />}
             <div className="prow-buttons">
               <button className="btn primary" disabled={!parts.length} onClick={() => void remakeBacking(parts)}>
                 {parts.length === REMAKE_PARTS.length ? 'Recreate the backing track' : `Recreate the ${parts.map((p) => PART_LABELS[p].toLowerCase()).join(' and ') || '…'}`}
@@ -234,6 +242,17 @@ export function ReferencePanel(): React.JSX.Element {
                 </Field>
               )
             })}
+            {remade.some((t) => t.remake === 'keys') &&
+              (ref.keysHeard ? (
+                <>
+                  <KeysDetail id="remake-keys-detail" value={ref.keysDetail ?? FULL_DETAIL} onChange={(v) => setDetail(v)} />
+                  <p className="drawer-hint tight">
+                    Moving it rebuilds the Keys track, replacing edits to it.{melody ? '' : ' Beginner and Easy follow the sung tune once Melody to sing has been found; until then, the keys’ top line.'}
+                  </p>
+                </>
+              ) : (
+                <p className="drawer-hint tight">Recreate the keys again to choose how detailed they are, from a beginner’s part to everything heard.</p>
+              ))}
             <p className="drawer-hint tight">
               Each part is a track: edit its notes on the stage, or pick another sound for it here or in the Tracks tab. To tidy a part’s timing, click it in the
               Tracks tab to select its notes and press Q.

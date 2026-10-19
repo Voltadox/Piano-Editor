@@ -28,6 +28,8 @@ import { savePref } from './state/prefs'
 import { getState, useStore } from './state/store'
 import { FallView } from './view/FallView'
 import { VelocityLane } from './view/VelocityLane'
+import { Timeline } from './view/Timeline'
+import { clearTimelineRange, repeatTimelineRange, toggleTimeline } from './actions/timeline'
 import { Overview } from './ui/Overview'
 import { Banners, Busy, StatusBar, Toast } from './ui/Overlays'
 import { Drawer } from './ui/Drawer'
@@ -85,7 +87,19 @@ function onKey(e: KeyboardEvent): void {
     else if (k === 'c') (copySelection(), handled())
     else if (k === 'x') (cutSelection(), handled())
     else if (k === 'v') (paste(playheadTick()), handled())
+    else if (k === 'd' && st.timeline) (repeatTimelineRange(1), handled())
     return
+  }
+
+  if (e.key === 'Tab') {
+    handled()
+    toggleTimeline()
+    return
+  }
+  // the timeline edits its selected stretch of bars, not notes
+  if (st.timeline) {
+    if (e.key === 'Delete' || e.key === 'Backspace') return clearTimelineRange()
+    if (e.key === 'Escape' && st.tlRange) return st.set({ tlRange: null })
   }
 
   switch (e.key) {
@@ -160,6 +174,7 @@ export default function App(): React.JSX.Element {
   const fileName = useStore((s) => s.fileName)
   const dirty = useStore((s) => s.dirty)
   const laneOpen = useStore((s) => s.laneOpen)
+  const timeline = useStore((s) => s.timeline)
 
   useEffect(() => {
     // tracks can play from soundfonts other than the main one; they're read when a song needs them
@@ -226,10 +241,16 @@ export default function App(): React.JSX.Element {
     >
       <Transport />
       <Overview />
-      <main className={`stage${laneOpen ? ' with-lane' : ''}`}>
-        {laneOpen && <VelocityLane />}
-        <FallView />
-        <StudioPanel />
+      <main className={`stage${laneOpen && !timeline ? ' with-lane' : ''}`}>
+        {timeline ? (
+          <Timeline />
+        ) : (
+          <>
+            {laneOpen && <VelocityLane />}
+            <FallView />
+            <StudioPanel />
+          </>
+        )}
         <Banners />
         <Drawer />
       </main>
