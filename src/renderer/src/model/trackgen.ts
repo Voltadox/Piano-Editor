@@ -21,12 +21,16 @@ export interface GenSettings {
   /** ticks; the part is written from `from` to `to` */
   from: number
   to: number
+  /** the sustain pedal held under each chord, so short notes ring on instead of stopping dead */
+  pedal?: boolean
 }
 
 export interface PartInfo {
   id: GenPart
   name: string
   hint: string
+  /** whether the sustain pedal starts ticked: for parts of short notes that would otherwise sound choppy */
+  pedal: boolean
   /** the General MIDI program it suggests (0-based), and what to look for in other soundfonts' preset names */
   program: number
   match: RegExp
@@ -36,14 +40,14 @@ export interface PartInfo {
 }
 
 export const GEN_PARTS: PartInfo[] = [
-  { id: 'strings', name: 'Strings pad', hint: 'sustained chords, smoothly voiced, swelling in', program: 48, match: /string|ensemble|orch/i, volume: 0.6, reverb: 0.5 },
-  { id: 'violin', name: 'Violin line', hint: 'a counter-melody that answers the vocal', program: 40, match: /violin|fiddle/i, volume: 0.6, reverb: 0.45 },
-  { id: 'pizz', name: 'Plucks', hint: 'short plucked chord notes in the genre’s rhythm', program: 45, match: /pizz|pluck/i, volume: 0.65, reverb: 0.3 },
-  { id: 'arp', name: 'Arpeggio', hint: 'the chords broken into a running pattern', program: 46, match: /harp|arp|pluck/i, volume: 0.55, reverb: 0.35 },
-  { id: 'bass', name: 'Bass / 808', hint: 'the roots, on the genre’s bass rhythm', program: 38, match: /808|sub|bass/i, volume: 0.75, reverb: 0 },
-  { id: 'bells', name: 'Bells & sparkles', hint: 'sparse high notes on the off-beats', program: 9, match: /bell|glock|celest|music ?box/i, volume: 0.5, reverb: 0.55 },
-  { id: 'texture', name: 'Texture', hint: 'long, airy atmosphere notes in the background', program: 99, match: /atmos|ambient|texture|pad/i, volume: 0.45, reverb: 0.6 },
-  { id: 'risers', name: 'Risers & sweeps', hint: 'ear candy: sweeps rising into each new section', program: 119, match: /reverse|riser|sweep|cymbal|fx/i, volume: 0.45, reverb: 0.4 }
+  { id: 'strings', name: 'Strings pad', hint: 'sustained chords, smoothly voiced, swelling in', pedal: false, program: 48, match: /string|ensemble|orch/i, volume: 0.6, reverb: 0.5 },
+  { id: 'violin', name: 'Violin line', hint: 'a counter-melody that answers the vocal', pedal: true, program: 40, match: /violin|fiddle/i, volume: 0.6, reverb: 0.45 },
+  { id: 'pizz', name: 'Plucks', hint: 'short plucked chord notes in the genre’s rhythm', pedal: true, program: 45, match: /pizz|pluck/i, volume: 0.65, reverb: 0.3 },
+  { id: 'arp', name: 'Arpeggio', hint: 'the chords broken into a running pattern', pedal: true, program: 46, match: /harp|arp|pluck/i, volume: 0.55, reverb: 0.35 },
+  { id: 'bass', name: 'Bass / 808', hint: 'the roots, on the genre’s bass rhythm', pedal: false, program: 38, match: /808|sub|bass/i, volume: 0.75, reverb: 0 },
+  { id: 'bells', name: 'Bells & sparkles', hint: 'sparse high notes on the off-beats', pedal: true, program: 9, match: /bell|glock|celest|music ?box/i, volume: 0.5, reverb: 0.55 },
+  { id: 'texture', name: 'Texture', hint: 'long, airy atmosphere notes in the background', pedal: false, program: 99, match: /atmos|ambient|texture|pad/i, volume: 0.45, reverb: 0.6 },
+  { id: 'risers', name: 'Risers & sweeps', hint: 'ear candy: sweeps rising into each new section', pedal: false, program: 119, match: /reverse|riser|sweep|cymbal|fx/i, volume: 0.45, reverb: 0.4 }
 ]
 
 interface Genre {
@@ -371,6 +375,21 @@ function risers(c: Ctx, notes: Omit<Note, 'id'>[], ccs: CC[], from: number, to: 
   }
 }
 
+/**
+ * The sustain pedal under each chord: pressed where it starts, lifted and pressed again a moment
+ * after each change of chord (the way a pianist changes pedal with the harmony, so chords don't
+ * blur), and let up where the chords stop.
+ */
+function pedal(c: Ctx, ccs: CC[]): void {
+  const gap = Math.max(1, Math.round(c.song.ppq / 8))
+  c.spans.forEach((sp, i) => {
+    const joined = i > 0 && c.spans[i - 1].to === sp.from
+    if (joined) ccs.push({ tick: sp.from, num: 64, val: 0 })
+    ccs.push({ tick: joined ? sp.from + gap : sp.from, num: 64, val: 127 })
+    if (c.spans[i + 1]?.from !== sp.to) ccs.push({ tick: sp.to, num: 64, val: 0 })
+  })
+}
+
 /** Where a new part goes when there's nothing to say otherwise: the whole song, to the end of its last bar. */
 export function songSpan(song: Song): { from: number; to: number } {
   const B = ticksPerBar(song)
@@ -402,6 +421,7 @@ export function generatePart(song: Song, s: GenSettings): { notes: Note[]; ccs: 
   else if (s.part === 'bells') bells(c, notes, s.from, s.to)
   else if (s.part === 'texture') texture(c, notes, ccs, s.from, s.to)
   else risers(c, notes, ccs, s.from, s.to)
+  if (s.pedal && s.part !== 'risers') pedal(c, ccs)
   return {
     notes: sortNotes(notes.filter((n) => n.dur > 0 && n.pitch >= 0 && n.pitch <= 127).map((n) => ({ ...n, id: newId() }))),
     ccs: ccs.sort((a, b) => a.tick - b.tick)

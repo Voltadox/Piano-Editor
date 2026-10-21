@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
 
 export interface LoadedFile {
   path: string
@@ -46,6 +46,8 @@ const api = {
   selftest: (): Promise<string | null> => ipcRenderer.invoke('selftest'),
   selftestDone: (): void => ipcRenderer.send('selftest-done'),
   selftestCapture: (path: string): Promise<void> => ipcRenderer.invoke('selftest-capture', path),
+  /** page zoom, for checking layouts at the sizes a scaled-up screen gives */
+  selftestZoom: (factor: number): void => webFrame.setZoomFactor(factor),
   pathForFile: (file: File): string => webUtils.getPathForFile(file)
 }
 

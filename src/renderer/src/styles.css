@@ -426,9 +426,19 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg3); paddin
 .tl-meta .ms { width: 22px; height: 20px; }
 .tl-lanes { flex: 1; min-width: 0; height: 100%; display: block; touch-action: none; cursor: crosshair; }
 .tl-empty { position: absolute; left: 196px; top: 20px; color: var(--muted); }
-.new-track-choose { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-top: 6px; padding-bottom: 10px; }
+.new-track-choose { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding-top: 6px; padding-bottom: 10px; }
 .new-track-card { display: grid; gap: 6px; align-content: start; text-align: left; padding: 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg2); color: var(--text); cursor: pointer; }
 .new-track-card:hover { border-color: var(--accent); }
 .new-track-card strong { font-size: 14px; }
-.gen-parts { grid-template-columns: repeat(4, 1fr); }
-@media (max-width: 520px) { .new-track-choose { grid-template-columns: 1fr; } .gen-parts { grid-template-columns: repeat(2, 1fr); } }
+.new-track-card .meta { font-family: inherit; font-size: 12px; line-height: 1.4; white-space: normal; }
+/* the generate step gives way to a narrow window rather than scrolling sideways */
+.new-track .import-body { overflow-x: hidden; }
+.new-track .prow { grid-template-columns: 84px minmax(0, 1fr); }
+.new-track .seg { flex-wrap: wrap; max-width: 100%; }
+.gen-parts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.gen-parts .preset { min-width: 0; height: auto; min-height: 30px; padding: 4px 6px; line-height: 1.2; }
+@media (max-width: 640px) {
+  .new-track-choose { grid-template-columns: 1fr; }
+  .gen-parts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .new-track .prow { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}

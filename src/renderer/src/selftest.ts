@@ -34,6 +34,13 @@ const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms)
 /** Developer check run with `--selftest=<soundfont>|<outDir>`; never runs in normal use. */
 export async function runSelftest(arg: string): Promise<void> {
   const [sfPath, outDir, realSong, mode] = arg.split('|')
+  // `--selftest=newtrack|<outDir>|<soundfont>`: the Add track dialog's generate step, captured and
+  // checked for sideways overflow
+  if (sfPath === 'newtrack') {
+    await newTrackCheck(outDir, realSong)
+    window.keyfall.selftestDone()
+    return
+  }
   if (realSong) {
     await realSongCheck(sfPath, outDir, realSong, mode)
     window.keyfall.selftestDone()
@@ -711,6 +718,36 @@ async function grabFrame(videoPath: string, pngPath: string, at: number): Promis
  * analysis, vocal separation and the sung notes, with a screenshot of the result. With a fourth,
  * `remake`, recreates the backing track instead of reading the lyrics, and saves it as MP3s.
  */
+/** Opens Add track → Generated part with a soundfont loaded, logs any sideways overflow and captures it. */
+async function newTrackCheck(outDir: string, sfPath?: string): Promise<void> {
+  if (sfPath) {
+    const sf = await window.keyfall.readFile(sfPath)
+    if (sf) await loadSoundfontBytes(sf.data.buffer.slice(sf.data.byteOffset, sf.data.byteOffset + sf.data.byteLength) as ArrayBuffer, sf.name, null)
+  }
+  const { openNewTrack } = await import('./ui/NewTrackDialog')
+  openNewTrack()
+  await wait(400)
+  const first = document.querySelector<HTMLElement>('.new-track .import-body')
+  log('choose step: body', first?.clientWidth, 'scroll', first?.scrollWidth, first && first.scrollWidth > first.clientWidth ? 'OVERFLOWS SIDEWAYS' : 'fits')
+  await window.keyfall.selftestCapture(`${outDir}/new-track-choose.png`)
+  document.getElementById('new-track-generate')?.click()
+  await wait(800)
+  // a soundfont with a long file name (menus are as wide as their longest choice)
+  document.querySelector<HTMLSelectElement>('#gen-font')?.add(new Option('Arachno SoundFont - Version 1.0 Extended Orchestral and Vintage Keys Collection.sf2'))
+  await wait(100)
+  // at the sizes a small or scaled-up screen gives
+  for (const zoom of [1, 2, 2.5, 3]) {
+    window.keyfall.selftestZoom(zoom)
+    await wait(400)
+    const dialog = document.querySelector<HTMLElement>('.new-track')
+    const body = document.querySelector<HTMLElement>('.new-track .import-body')
+    log(`zoom ${zoom}: window`, window.innerWidth, 'x', window.innerHeight, 'dialog', dialog?.offsetWidth, 'x', dialog?.offsetHeight, 'body', body?.clientWidth, 'scroll', body?.scrollWidth, body && body.scrollWidth > body.clientWidth ? 'OVERFLOWS SIDEWAYS' : 'fits')
+    for (const el of document.querySelectorAll<HTMLElement>('.new-track .import-body *'))
+      if (body && el.getBoundingClientRect().right > body.getBoundingClientRect().right + 1) log('  too wide:', el.tagName, el.id || el.className, Math.round(el.getBoundingClientRect().width))
+    await window.keyfall.selftestCapture(`${outDir}/new-track-${zoom}.png`)
+  }
+}
+
 async function realSongCheck(sfPath: string, outDir: string, path: string, mode = ''): Promise<void> {
   const remake = mode === 'remake'
   try {

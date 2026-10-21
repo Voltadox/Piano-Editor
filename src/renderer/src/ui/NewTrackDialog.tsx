@@ -43,6 +43,7 @@ export function NewTrackDialog(): React.JSX.Element | null {
   const [font, setFont] = useState('')
   const [preset, setPreset] = useState('')
   const [where, setWhere] = useState<'song' | 'loop'>('song')
+  const [pedal, setPedal] = useState(false)
   const [design, setDesign] = useState<string[]>([])
   const [other, setOther] = useState<FontPreset[] | null>(null)
 
@@ -66,6 +67,8 @@ export function NewTrackDialog(): React.JSX.Element | null {
   }, [font])
   const list: FontPreset[] | null = font ? other : mainPresets
   const info = GEN_PARTS.find((p) => p.id === part)!
+  // each part starts with the pedal as suits it: down for parts of short notes
+  useEffect(() => setPedal(info.pedal), [part])
   // a new part or soundfont starts on the instrument that suits the part
   useEffect(() => {
     if (!list) return
@@ -76,7 +79,8 @@ export function NewTrackDialog(): React.JSX.Element | null {
   const create = (): void => {
     const span = where === 'loop' && loop ? { from: loop.start, to: loop.end } : songSpan(getState().song)
     const [bank, program] = preset.split(':').map(Number)
-    if (addGeneratedTrack({ part, genre, complexity, seed: newSeed(), ...span }, { bank, program, font: font || undefined })) close()
+    const gen = { part, genre, complexity, seed: newSeed(), ...span, pedal: pedal && part !== 'risers' }
+    if (addGeneratedTrack(gen, { bank, program, font: font || undefined })) close()
   }
 
   useEffect(() => {
@@ -146,6 +150,13 @@ export function NewTrackDialog(): React.JSX.Element | null {
               <Choice label="Complexity" value={complexity} onChange={setComplexity} options={COMPLEXITY.map((c, i) => ({ value: i + 1, label: c.label, title: c.hint }))} />
             </Field>
             <p className="drawer-hint tight">{COMPLEXITY[complexity - 1].hint}.</p>
+            {part !== 'risers' && (
+              <Field label="Pedal">
+                <label className="check" title="Holds the sustain pedal under each chord, changing it with the chords, so notes ring into each other instead of stopping dead">
+                  <input id="gen-pedal" type="checkbox" checked={pedal} onChange={(e) => setPedal(e.target.checked)} /> Sustain pedal
+                </label>
+              </Field>
+            )}
             <h3>Sound</h3>
             <Field label="Soundfont">
               <select id="gen-font" className="select grow" value={font} onChange={(e) => setFont(e.target.value)}>
