@@ -1,5 +1,6 @@
 import type { AudioTrack } from './audio'
 import type { Beat } from './beat'
+import type { GenSettings } from './trackgen'
 
 export interface Note {
   id: number
@@ -51,6 +52,8 @@ export interface Track {
   remake?: RemakePart
   /** drums played from a beatboxed take (rebuilt from it when it's recorded again) */
   beatbox?: boolean
+  /** a part Keyfall wrote to fit the song's chords, and how (so it can write another variation) */
+  gen?: GenSettings
 }
 
 export type RemakePart = 'drums' | 'bass' | 'keys'

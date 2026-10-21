@@ -115,6 +115,40 @@ export function levelGain(pcm: Float32Array, rate: number): number {
 }
 
 /**
+ * Tames harsh "s", "sh" and "t" sounds, in place. The treble (above about 5 kHz) is turned down
+ * while it makes up a large part of the sound, as it does in a sibilant but never in a sung vowel:
+ * the more it dominates, the more it comes down, by up to 10 dB. The rest of the voice is untouched,
+ * and with nothing to tame the treble adds back to exactly what came in.
+ */
+export function deEss(x: Float32Array, rate: number): void {
+  const w = (2 * Math.PI * Math.min(5000, rate * 0.4)) / rate
+  const alpha = Math.sin(w) / (2 * Math.SQRT1_2)
+  const cw = Math.cos(w)
+  const a0 = 1 + alpha
+  const [b0, b1, b2] = [(1 - cw) / 2 / a0, (1 - cw) / a0, (1 - cw) / 2 / a0]
+  const [a1, a2] = [(-2 * cw) / a0, (1 - alpha) / a0]
+  const follow = (ms: number): number => 1 - Math.exp(-1 / (rate * ms * 0.001))
+  const fast = follow(1)
+  const slow = follow(60)
+  let [x1, x2, y1, y2] = [0, 0, 0, 0]
+  let eHi = 0
+  let eAll = 0
+  let g = 1
+  for (let i = 0; i < x.length; i++) {
+    const v = x[i]
+    const lo = b0 * v + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+    ;[x2, x1, y2, y1] = [x1, v, y1, lo]
+    const hi = v - lo
+    eHi += (Math.abs(hi) - eHi) * (Math.abs(hi) > eHi ? fast : slow)
+    eAll += (Math.abs(v) - eAll) * (Math.abs(v) > eAll ? fast : slow)
+    const share = eAll > 1e-4 ? eHi / eAll : 0
+    const want = share > 0.45 && eHi > 0.003 ? Math.max(0.32, 0.45 / share) : 1
+    g += (want - g) * (want < g ? fast : slow)
+    x[i] = lo + hi * g
+  }
+}
+
+/**
  * A gentle gate, as a gain per sample (0..1): it opens on singing and closes in the gaps between
  * phrases, so mic hiss and the flicker of a mic's own noise gate aren't turned up with the voice.
  * Thresholds follow the take: it opens 12 dB over the hiss (or 30 dB under the singing, if that's

@@ -1,5 +1,5 @@
 import { isSongLine, tuneMode, type AudioClip, type AudioTrack } from '../model/audio'
-import { guideLine, guidePitchAt, scaleOf, songKey } from '../model/guide'
+import { chordMaskAt, guidePitchAt, scaleOf, songKey } from '../model/guide'
 import { tempoMap, type Song } from '../model/song'
 import { useStore } from '../state/store'
 import { HOP_SEC, type TunedNote, type TuneSettings } from './pitch'
@@ -57,21 +57,24 @@ function getWorker(): Worker {
   return worker
 }
 
-function hash(a: Float32Array | undefined): number {
+function hash(a: ArrayLike<number> | undefined): number {
   if (!a) return 0
   let h = 5381
   for (let i = 0; i < a.length; i++) h = (h * 33 + (Number.isNaN(a[i]) ? 7 : Math.round(a[i]))) | 0
   return h
 }
 
-const settingsCache = new WeakMap<AudioClip, { track: AudioTrack; tracks: Song['tracks']; tempos: Song['tempos']; key: Song['key']; take: TakeData; s: TuneSettings }>()
+const settingsCache = new WeakMap<
+  AudioClip,
+  { track: AudioTrack; tracks: Song['tracks']; tempos: Song['tempos']; key: Song['key']; chords: Song['chords']; take: TakeData; s: TuneSettings }
+>()
 
 /** What a clip's take should be processed with: the track's tune and voice settings, plus the key or guide line. */
 export function tuneSettings(song: Song, track: AudioTrack, clip: AudioClip, take: TakeData): TuneSettings {
   const hit = settingsCache.get(clip)
-  if (hit && hit.track === track && hit.tracks === song.tracks && hit.tempos === song.tempos && hit.key === song.key && hit.take === take) return hit.s
+  if (hit && hit.track === track && hit.tracks === song.tracks && hit.tempos === song.tempos && hit.key === song.key && hit.chords === song.chords && hit.take === take) return hit.s
   const s = buildSettings(song, track, clip, take)
-  settingsCache.set(clip, { track, tracks: song.tracks, tempos: song.tempos, key: song.key, take, s })
+  settingsCache.set(clip, { track, tracks: song.tracks, tempos: song.tempos, key: song.key, chords: song.chords, take, s })
   return s
 }
 
@@ -89,28 +92,33 @@ function buildSettings(song: Song, track: AudioTrack, clip: AudioClip, take: Tak
     formant: track.formant,
     edits: clip.edits?.[clip.takes[clip.active]]
   }
-  if (settings.mode === 'guide') {
-    // a take cut into pieces (words moved in time) follows the guide where each piece now plays;
-    // every piece builds the same line, so they share one tuned version of the take
-    const map = tempoMap(song)
-    const takeId = clip.takes[clip.active]
-    const pieces = track.clips.filter((c) => c.takes[c.active] === takeId)
-    const frames = Math.ceil(take.pcm.length / (take.rate * HOP_SEC))
-    const originOf = (c: AudioClip): number => map.tickToSec(c.tick) - c.offset
-    const guide = guideLine(song, voice, track.tune.centre, originOf(pieces[0] ?? clip), frames, HOP_SEC)
+  if (settings.mode === 'off') return settings
+  // a take cut into pieces (words moved in time) follows the guide and the chords where each piece
+  // now plays; every piece builds the same lines, so they share one tuned version of the take
+  const map = tempoMap(song)
+  const takeId = clip.takes[clip.active]
+  const pieces = track.clips.filter((c) => c.takes[c.active] === takeId)
+  const frames = Math.ceil(take.pcm.length / (take.rate * HOP_SEC))
+  const originOf = (c: AudioClip): number => map.tickToSec(c.tick) - c.offset
+  const first = originOf(pieces[0] ?? clip)
+  const perFrame = <A extends Float32Array | Uint16Array>(out: A, at: (sec: number) => number): A => {
+    for (let i = 0; i < frames; i++) out[i] = at(first + i * HOP_SEC)
     for (const c of pieces.slice(1)) {
       const origin = originOf(c)
-      if (Math.abs(origin - originOf(pieces[0])) < 1e-6) continue
+      if (Math.abs(origin - first) < 1e-6) continue
       const to = Math.min(frames, Math.ceil((c.offset + c.duration) / HOP_SEC))
-      for (let i = Math.max(0, Math.floor(c.offset / HOP_SEC)); i < to; i++) guide[i] = guidePitchAt(song, origin + i * HOP_SEC, voice, track.tune.centre) ?? NaN
+      for (let i = Math.max(0, Math.floor(c.offset / HOP_SEC)); i < to; i++) out[i] = at(origin + i * HOP_SEC)
     }
-    settings.guide = guide
+    return out
   }
+  if (settings.mode === 'guide') settings.guide = perFrame(new Float32Array(frames), (sec) => guidePitchAt(song, sec, voice, track.tune.centre) ?? NaN)
+  const chords = perFrame(new Uint16Array(frames), (sec) => chordMaskAt(song, sec))
+  if (chords.some((m) => m)) settings.chords = chords
   return settings
 }
 
 const keyOf = (takeId: string, s: TuneSettings): string =>
-  [takeId, s.mode, s.speed.toFixed(2), s.transpose, s.detune, s.formant.toFixed(2), s.scale.join('.'), hash(s.guide), JSON.stringify(s.edits ?? [])].join('|')
+  [takeId, s.mode, s.speed.toFixed(2), s.transpose, s.detune, s.formant.toFixed(2), s.scale.join('.'), hash(s.guide), hash(s.chords), JSON.stringify(s.edits ?? [])].join('|')
 
 /**
  * The audio to play for a clip right now: its processed take if ready, else the last version made

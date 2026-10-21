@@ -39,7 +39,8 @@ interface Lane {
 }
 
 function lanesOf(song: Song): Lane[] {
-  const tag = (t: Track): string => (t.beat ? 'Beat' : t.beatbox ? 'Beatbox' : t.remake ? 'Remake' : t.silent ? 'To sing' : t.role === 'chords' ? 'Chords' : 'MIDI')
+  const tag = (t: Track): string =>
+    t.beat ? 'Beat' : t.beatbox ? 'Beatbox' : t.remake ? 'Remake' : t.silent ? 'To sing' : t.role === 'chords' ? 'Chords' : t.gen ? 'Generated' : 'MIDI'
   return [
     ...song.tracks.map((t) => ({ kind: 'notes' as const, id: t.id, name: t.name, color: t.color, tag: tag(t), muted: t.muted, solo: t.solo, silent: !!t.silent })),
     ...song.audioTracks.map((t) => ({

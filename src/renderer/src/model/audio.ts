@@ -2,7 +2,7 @@ import type { TuneEdit } from '../audio/pitch'
 
 /** Recorded audio in a song: vocal tracks made of clips, each clip holding one or more takes. */
 
-export type VocalPreset = 'clean' | 'dreamy' | 'underwater' | 'tape' | 'haze' | 'radio'
+export type VocalPreset = 'clean' | 'melodic' | 'lofi' | 'dreamy' | 'underwater' | 'tape' | 'haze' | 'radio'
 
 /** Which line a harmony voice follows, built from the piano's chords. */
 export type GuideVoice = 'root' | 'third' | 'fifth' | 'octave' | 'melody' | 'above' | 'below'
@@ -66,12 +66,23 @@ export interface AudioTrack {
 
 export const VOCAL_PRESETS: { id: VocalPreset; name: string; hint: string }[] = [
   { id: 'clean', name: 'Clean', hint: 'a touch of room, nothing else' },
+  { id: 'melodic', name: 'Melodic rap', hint: 'bright, upfront and doubled, with hard tuning and a beat-timed echo (think The Kid LAROI)' },
+  { id: 'lofi', name: 'Sad lo-fi', hint: 'dark and warm, softer tuning, tape grit and a big wide reverb (think Joji)' },
   { id: 'dreamy', name: 'Dreamy', hint: 'big plate reverb and a slow, dark delay' },
   { id: 'underwater', name: 'Underwater', hint: 'muffled low-pass with a slow chorus' },
   { id: 'tape', name: 'Lo-fi tape', hint: 'warm saturation, wobble and a narrow band' },
   { id: 'haze', name: 'Haze', hint: 'washed-out reverb with doubled, widened voices' },
   { id: 'radio', name: 'Radio comms', hint: 'a crackly squad radio, like in-game voice chat (think Arc Raiders)' }
 ]
+
+/**
+ * Sounds that are as much the tuning as the effect: picking one also sets how hard the voice is
+ * tuned (and turns tuning on), and how much of the effect there is.
+ */
+export const PRESET_TUNING: Partial<Record<VocalPreset, { speed: number; amount: number }>> = {
+  melodic: { speed: 0.95, amount: 0.7 },
+  lofi: { speed: 0.75, amount: 0.65 }
+}
 
 export const DEFAULT_TUNE: Tune = { mode: 'key', speed: 0.85, voice: 'root', centre: 57 }
 

@@ -13,12 +13,12 @@ import { useStore } from '../state/store'
 let collection: Promise<string[]> | null = null
 const presetCache = new Map<string, Promise<FontPreset[]>>()
 
-function designFonts(): Promise<string[]> {
+export function designFonts(): Promise<string[]> {
   collection ??= window.keyfall.designFonts().then((list) => list.map((f) => f.path))
   return collection
 }
 
-function presetsOf(path: string): Promise<FontPreset[]> {
+export function presetsOf(path: string): Promise<FontPreset[]> {
   const known = placed.get(path)?.presets
   if (known) return Promise.resolve(known)
   let p = presetCache.get(path)

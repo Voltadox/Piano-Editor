@@ -211,7 +211,11 @@ export const HELP: HelpSection[] = [
       },
       {
         q: 'How do I add or delete tracks?',
-        a: 'Add track sits at the bottom of the Tracks tab. The bin button deletes a track; `Ctrl+Z` brings it back.'
+        a: 'Add track sits at the bottom of the Tracks tab. Pick Empty track to fill it yourself, or Generated part to have Keyfall write one. The bin button deletes a track; `Ctrl+Z` brings it back.'
+      },
+      {
+        q: 'Can Keyfall write a part for me, like strings or risers?',
+        a: 'Yes. Press Add track and pick Generated part. Keyfall writes it to fit your song\'s chords (the chord lane, or the chords your own tracks play), and the parts it writes don\'t count towards those chords.\n- Part: Strings pad, Violin line (answers the vocal, two bars on and two off), Plucks, Arpeggio, Bass / 808, Bells & sparkles, Texture, or Risers & sweeps (ear candy rising into each section, or every few bars).\n- Genre sets the rhythm and feel: Trap, Drill, Boom bap, Lo-fi, R&B, Pop or Cinematic. It starts on a guess from your beat or tempo.\n- Complexity runs from Simple (roots and plain chords) to Adventurous (ninths, leaps and notes leading in from outside the key).\n- Soundfont and Instrument pick the sound; each part starts on the instrument that suits it.\n- With a loop set, Where can write it into just the loop.\n\nThe ↻ button on a generated track\'s card writes another variation, replacing its notes (`Ctrl+Z` brings them back), so edit its notes once you like one.'
       },
       {
         q: 'What are the "(to sing)" tracks?',
@@ -367,7 +371,7 @@ export const HELP: HelpSection[] = [
       },
       {
         q: 'What do the effect presets sound like?',
-        a: '- Clean: a touch of room, nothing else.\n- Dreamy: big plate reverb and a slow, dark echo (timed to the song\'s tempo).\n- Underwater: muffled low-pass with a slow chorus.\n- Lo-fi tape: warm saturation, wobble and a narrow band.\n- Haze: washed-out reverb with doubled, widened voices.\n\nAmount blends from nearly dry to the full effect.'
+        a: '- Clean: a touch of room, nothing else.\n- Melodic rap: bright and upfront, squeezed even, with wide doubles, an echo on the beat bouncing side to side and a short bright plate (think The Kid LAROI). Picking it also sets Retune nearly to Hard.\n- Sad lo-fi: dark and warm with tape grit, chorused wide into a big soft reverb (think Joji). Picking it also sets a softer Retune.\n- Dreamy: big plate reverb and a slow, dark echo (timed to the song\'s tempo).\n- Underwater: muffled low-pass with a slow chorus.\n- Lo-fi tape: warm saturation, wobble and a narrow band.\n- Haze: washed-out reverb with doubled, widened voices.\n\nAmount blends from nearly dry to the full effect.'
       },
       {
         q: 'What do Tone, Pitch and Detune do?',

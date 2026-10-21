@@ -75,6 +75,65 @@ function filter(ctx: BaseAudioContext, type: BiquadFilterType, freq: number, q =
   return f
 }
 
+/** A peaking or shelving EQ band, `db` up or down. */
+function eq(ctx: BaseAudioContext, type: 'peaking' | 'lowshelf' | 'highshelf', freq: number, db: number, q = 1): BiquadFilterNode {
+  const f = filter(ctx, type, freq, q)
+  f.gain.value = db
+  return f
+}
+
+function compressor(ctx: BaseAudioContext, threshold: number, ratio: number, attack: number, release: number, knee = 6): DynamicsCompressorNode {
+  const c = ctx.createDynamicsCompressor()
+  c.threshold.value = threshold
+  c.ratio.value = ratio
+  c.attack.value = attack
+  c.release.value = release
+  c.knee.value = knee
+  return c
+}
+
+/**
+ * An echo bouncing between the left and the right, darker and thinner each time round, so it
+ * fills out the sides without muddying the voice in the middle.
+ */
+function pingPong(ctx: BaseAudioContext, time: number, feedback: number, low: number, high: number): { input: AudioNode; output: AudioNode } {
+  const input = ctx.createGain()
+  const output = ctx.createGain()
+  const left = ctx.createDelay(2)
+  const right = ctx.createDelay(2)
+  left.delayTime.value = time
+  right.delayTime.value = time
+  const tone = filter(ctx, 'highpass', low)
+  const top = filter(ctx, 'lowpass', high)
+  input.connect(tone).connect(top).connect(left)
+  const fb = gain(ctx, feedback)
+  left.connect(right)
+  right.connect(fb).connect(left)
+  for (const [node, pan] of [
+    [left, -0.75],
+    [right, 0.75]
+  ] as const) {
+    const p = ctx.createStereoPanner()
+    p.pan.value = pan
+    node.connect(p).connect(output)
+  }
+  return { input, output }
+}
+
+/** Two copies of the voice a few milliseconds late, each drifting slightly, spread left and right: a wide double. */
+function doubles(ctx: BaseAudioContext, delays: [number, number], depth: number, rate: number, spread: number): { input: AudioNode; output: AudioNode } {
+  const input = ctx.createGain()
+  const output = ctx.createGain()
+  delays.forEach((delay, i) => {
+    const w = wobble(ctx, delay, depth, rate * (i ? 1.27 : 1))
+    const p = ctx.createStereoPanner()
+    p.pan.value = i ? spread : -spread
+    input.connect(w.input)
+    w.output.connect(p).connect(output)
+  })
+  return { input, output }
+}
+
 /** Rounds the wave to a few levels: the gritty, low-bit sound of a cheap digital radio. */
 function quantizer(ctx: BaseAudioContext, levels: number): WaveShaperNode {
   const ws = ctx.createWaveShaper()
@@ -115,17 +174,13 @@ export function buildChain(ctx: BaseAudioContext, preset: VocalPreset, amount: n
   const input = ctx.createGain()
   const output = ctx.createGain()
   const a = Math.max(0, Math.min(1, amount))
-  // rumble and mic thumps never help a vocal
+  // rumble and mic thumps never help a vocal, and a little less boxy low-middle clears it up
   const rumble = filter(ctx, 'highpass', 110)
-  // a gentle vocal compressor: evens out loud and soft phrases so the voice sits up in the mix
-  const comp = ctx.createDynamicsCompressor()
-  comp.threshold.value = -22
-  comp.knee.value = 8
-  comp.ratio.value = 3
-  comp.attack.value = 0.006
-  comp.release.value = 0.15
-  const hp = gain(ctx, 1.2)
-  input.connect(rumble).connect(comp).connect(hp)
+  const box = eq(ctx, 'peaking', 320, -2, 1.1)
+  // a vocal compressor: evens out loud and soft phrases so the voice sits up in the mix
+  const comp = compressor(ctx, -24, 3.5, 0.005, 0.12, 10)
+  const hp = gain(ctx, 1)
+  input.connect(rumble).connect(box).connect(comp).connect(hp)
   const dry = gain(ctx, 1)
   dry.connect(output)
 
@@ -139,6 +194,44 @@ export function buildChain(ctx: BaseAudioContext, preset: VocalPreset, amount: n
     case 'clean': {
       hp.connect(dry)
       send(reverb(ctx, 1.4, 0.6, 0.015), 0.25 * a)
+      break
+    }
+    case 'melodic': {
+      // a modern melodic rap vocal: bright and right up front, squeezed even, with wide doubles,
+      // an echo on the beat bouncing side to side and a short, bright plate behind it
+      const lead = gain(ctx, 1)
+      hp.connect(eq(ctx, 'peaking', 3200, 3.5 * a, 0.9))
+        .connect(eq(ctx, 'highshelf', 10000, 4 * a))
+        .connect(compressor(ctx, -18, 4, 0.003, 0.09))
+        .connect(saturator(ctx, 1 + 1.2 * a))
+        .connect(gain(ctx, 0.85))
+        .connect(lead)
+      lead.connect(dry)
+      send(doubles(ctx, [0.011, 0.017], 0.0008, 0.6, 0.7), 0.3 * a, lead)
+      send(pingPong(ctx, echoTime(beatSec), 0.3, 500, 5000), 0.22 * a, lead)
+      send(reverb(ctx, 1.6, 0.5, 0.02), 0.3 * a, lead)
+      break
+    }
+    case 'lofi': {
+      // a sad lo-fi vocal: dark and warm, slightly worn like tape, chorused wide into a big soft reverb
+      const lead = gain(ctx, 1)
+      const wow = wobble(ctx, 0.005, 0.0006 * a, 0.7)
+      hp.connect(filter(ctx, 'highpass', 160))
+        .connect(eq(ctx, 'peaking', 250, 2 * a, 0.8))
+        .connect(compressor(ctx, -24, 3.5, 0.01, 0.2))
+        .connect(saturator(ctx, 1 + 2.5 * a))
+        .connect(filter(ctx, 'lowpass', 6500 - 2000 * a))
+        .connect(wow.input)
+      wow.output.connect(gain(ctx, 0.8)).connect(lead)
+      lead.connect(dry)
+      dry.gain.value = 1 - 0.3 * a
+      send(doubles(ctx, [0.022, 0.029], 0.002, 0.3, 0.85), 0.4 * a, lead)
+      send(reverb(ctx, 4.5, 0.9, 0.035), 0.75 * a, lead)
+      const echo = ctx.createDelay(2)
+      echo.delayTime.value = echoTime(beatSec)
+      const tone = filter(ctx, 'lowpass', 1800)
+      echo.connect(tone).connect(gain(ctx, 0.35)).connect(echo)
+      send({ input: echo, output: tone }, 0.25 * a, lead)
       break
     }
     case 'dreamy': {

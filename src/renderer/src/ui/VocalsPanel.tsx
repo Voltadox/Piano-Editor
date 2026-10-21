@@ -3,7 +3,7 @@ import { engine } from '../audio/engine'
 import { listMics, micLevel, openMic, setShowPitch } from '../audio/vocalRecorder'
 import { tuningCount } from '../audio/vocals'
 import { recordVocals } from '../actions/transport'
-import { isSongLine, tuneMode, VOCAL_PRESETS, type AudioTrack, type GuideVoice } from '../model/audio'
+import { isSongLine, PRESET_TUNING, tuneMode, VOCAL_PRESETS, type AudioTrack, type GuideVoice, type VocalPreset } from '../model/audio'
 import { songKey } from '../model/guide'
 import { keyName } from '../model/harmony'
 import { tempoMap, ticksPerBar, ticksPerBeat, type Song } from '../model/song'
@@ -123,6 +123,12 @@ function TrackEditor({ t }: { t: AudioTrack }): React.JSX.Element {
   const [guideTone, setGuideTone] = useState(true)
   const set = (patch: Partial<AudioTrack>): void => updateAudioTrack(t.id, patch)
   const tune = (patch: Partial<AudioTrack['tune']>): void => set({ tune: { ...t.tune, ...patch } })
+  // some sounds are as much the tuning as the effect, and bring their own (switching tuning on)
+  const choosePreset = (preset: VocalPreset): void => {
+    const own = PRESET_TUNING[preset]
+    if (!own) return set({ preset })
+    set({ preset, amount: own.amount, tune: { ...t.tune, speed: own.speed, mode: t.tune.mode === 'off' ? 'key' : t.tune.mode } })
+  }
   const recThis = recording?.kind === 'take' && recording.trackIds[0] === t.id
   const mode = tuneMode(t.tune)
   const songLines = availableVoices(song).filter(isSongLine)
@@ -291,7 +297,7 @@ function TrackEditor({ t }: { t: AudioTrack }): React.JSX.Element {
         <div className="ptitle">Effect</div>
         <div className="preset-grid">
           {VOCAL_PRESETS.map((p) => (
-            <button key={p.id} className={`preset${t.preset === p.id ? ' on' : ''}`} title={p.hint} onClick={() => set({ preset: p.id })}>
+            <button key={p.id} className={`preset${t.preset === p.id ? ' on' : ''}`} title={p.hint} onClick={() => choosePreset(p.id)}>
               {p.name}
             </button>
           ))}

@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { gateGain, levelGain, repairDropouts } from './cleanup'
+import { deEss, gateGain, levelGain, repairDropouts } from './cleanup'
 import { detectPitch, pitchShifts, psola, type TunedNote, type TuneSettings } from './pitch'
 
 export interface TuneRequest {
@@ -35,6 +35,7 @@ self.onmessage = (e: MessageEvent<TuneRequest>) => {
     const gain = levelGain(out, rate)
     const gate = gateGain(pcm, rate)
     for (let i = 0; i < out.length; i++) out[i] *= gain * gate[i]
+    deEss(out, rate)
     const reply: TuneReply = { id, pcm: out, pitch, notes, f0 }
     ;(self as unknown as Worker).postMessage(reply, [out.buffer])
   } catch (err) {

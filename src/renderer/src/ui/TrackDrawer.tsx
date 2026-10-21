@@ -1,6 +1,8 @@
 import { GM_NAMES } from '../model/gm'
 import { DRUM_CHANNEL, PALETTE } from '../model/song'
-import { addTrack, choosePreset, pickTrack, removeTrack, selectTrack, setDrums, updateTrack } from '../state/edit'
+import { choosePreset, pickTrack, removeTrack, selectTrack, setDrums, updateTrack } from '../state/edit'
+import { regenerateTrack } from '../state/generate'
+import { openNewTrack } from './NewTrackDialog'
 import { useStore } from '../state/store'
 import * as I from './icons'
 import { TrackExportButton } from './TrackExport'
@@ -105,6 +107,11 @@ export function TracksPanel(): React.JSX.Element {
                 )}
                 <span className="meta" title="MIDI channel">ch {t.channel + 1}</span>
                 <span className="meta" title="Notes">{t.notes.length.toLocaleString()}</span>
+                {t.gen && (
+                  <button className="icon-btn small" title="Write another variation of this part (replaces its notes; Ctrl+Z brings them back)" onClick={() => regenerateTrack(t.id)}>
+                    <I.IconRefresh size={15} />
+                  </button>
+                )}
                 <TrackExportButton track={{ kind: 'notes', id: t.id }} name={t.name} />
                 <button className="icon-btn small" title="Delete track (undo with Ctrl+Z)" onClick={() => removeTrack(t.id)}><I.IconTrash size={15} /></button>
               </div>
@@ -117,7 +124,7 @@ export function TracksPanel(): React.JSX.Element {
           )
         })}
       </ul>
-      <button className="btn add-track" onClick={addTrack}><I.IconPlus size={16} /> Add track</button>
+      <button className="btn add-track" onClick={openNewTrack}><I.IconPlus size={16} /> Add track</button>
     </>
   )
 }

@@ -87,6 +87,7 @@ export function mergeTracks(): void {
     role: undefined,
     remake: undefined,
     beatbox: undefined,
+    gen: undefined,
     silent: picked.every((t) => t.silent) || undefined
   }
   getState().apply((s) => ({ ...s, tracks: s.tracks.filter((t) => !gone.has(t.id)).map((t) => (t.id === into.id ? merged : t)) }))

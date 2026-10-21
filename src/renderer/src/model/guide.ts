@@ -30,7 +30,7 @@ export function scaleOf(key: Key | null): number[] {
 
 /** Root, third and fifth (pitch classes) of the chord in each beat, carried over silent beats. */
 const timelineCache = new WeakMap<Track[], { tempos: Song['tempos']; lane: Song['chords']; chords: (number[] | null)[] }>()
-function chordTimeline(song: Song): (number[] | null)[] {
+export function chordTimeline(song: Song): (number[] | null)[] {
   const hit = timelineCache.get(song.tracks)
   if (hit && hit.tempos === song.tempos && hit.lane === song.chords) return hit.chords
   const tpb = ticksPerBeat(song)
@@ -104,9 +104,11 @@ export function guidePitchAt(song: Song, sec: number, voice: GuideVoice, centre:
   return nearest(chord[voice === 'root' ? 0 : voice === 'third' ? 1 : 2], centre)
 }
 
-/** A voice's guide pitch per analysis frame, starting at `startSec`. */
-export function guideLine(song: Song, voice: GuideVoice, centre: number, startSec: number, frames: number, hop: number): Float32Array {
-  const out = new Float32Array(frames)
-  for (let i = 0; i < frames; i++) out[i] = guidePitchAt(song, startSec + i * hop, voice, centre) ?? NaN
-  return out
+/** The chord sounding at a song time, as a bitmask of its pitch classes (0 where there is none). */
+export function chordMaskAt(song: Song, sec: number): number {
+  if (sec < 0) return 0
+  const chords = chordTimeline(song)
+  if (!chords.length) return 0
+  const chord = chords[Math.min(chords.length - 1, Math.floor(tempoMap(song).secToTick(sec) / ticksPerBeat(song)))]
+  return chord ? chord.reduce((m, pc) => m | (1 << pc), 0) : 0
 }

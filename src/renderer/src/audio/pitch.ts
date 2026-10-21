@@ -187,6 +187,8 @@ export interface TuneSettings {
   scale: number[]
   /** guide target per frame (MIDI pitch, NaN where there is none), lined up with the take */
   guide?: Float32Array
+  /** the chord playing at each frame, as a bitmask of pitch classes (0 where there is none) */
+  chords?: Uint16Array
   /** hand edits, which win over the mode */
   edits?: TuneEdit[]
   transpose: number
@@ -196,6 +198,14 @@ export interface TuneSettings {
 
 /** Runs shorter than this (frames) are glides between notes and go with the touching note nearest in pitch. */
 const MIN_NOTE = 6
+/** A note shorter than this (frames) on its own, between pauses, is left as sung: it's a blip, not a note. */
+const MIN_TUNED = 5
+/**
+ * How much further (semitones) a note of the chord playing can be from what was sung than another
+ * note, and still be the one chosen. A note sung between two notes of the key goes to the one
+ * that fits the harmony, rather than to whichever is a few cents nearer.
+ */
+const CHORD_PULL = 0.25
 
 /**
  * Where the guide moves to another note inside one sung note (the singer moved too little for
@@ -307,7 +317,36 @@ export function tuneNotes(f0: Float32Array, s: TuneSettings): TunedNote[] {
       if (Math.abs(n.sung - n.target) > 7) n.target = g + 12 * Math.round((n.sung - g) / 12)
     })
   }
-  if (s.mode !== 'off') for (const n of notes) if (Number.isNaN(n.target)) n.target = nearestInScale(n.sung)
+  /** the chord under most of a note (0 if there's none for most of it) */
+  const chordUnder = (n: TunedNote): number => {
+    if (!s.chords) return 0
+    const count = new Map<number, number>()
+    for (let i = n.start; i < n.end; i++) if (s.chords[i]) count.set(s.chords[i], (count.get(s.chords[i]) ?? 0) + 1)
+    let best = 0
+    let most = 0
+    for (const [m, c] of count) if (c > most) [best, most] = [m, c]
+    return most >= (n.end - n.start) * 0.3 ? best : 0
+  }
+  const landing = (n: TunedNote): number => {
+    const chord = chordUnder(n)
+    if (!chord) return nearestInScale(n.sung)
+    let best = nearestInScale(n.sung)
+    let cost = Infinity
+    for (let c = Math.floor(n.sung) - 2; c <= Math.ceil(n.sung) + 2; c++) {
+      const inChord = (chord >> (((c % 12) + 12) % 12)) & 1
+      if (!inChord && !inScale(c)) continue
+      const k = Math.abs(c - n.sung) - (inChord ? CHORD_PULL : 0)
+      if (k < cost) [best, cost] = [c, k]
+    }
+    return best
+  }
+  if (s.mode !== 'off')
+    notes.forEach((n, k) => {
+      if (!Number.isNaN(n.target)) return
+      const alone = notes[k - 1]?.end !== n.start && notes[k + 1]?.start !== n.end
+      if (alone && n.end - n.start < MIN_TUNED) return
+      n.target = landing(n)
+    })
   for (const e of s.edits ?? []) {
     const f = e.at / HOP_SEC
     const n = notes.find((x) => f >= x.start && f < x.end)

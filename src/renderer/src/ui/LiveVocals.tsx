@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { liveReading, setLive, startLive, stopLive } from '../audio/liveVocal'
 import { micLevel } from '../audio/vocalRecorder'
-import { VOCAL_PRESETS } from '../model/audio'
+import { PRESET_TUNING, VOCAL_PRESETS } from '../model/audio'
 import { noteName } from '../model/song'
 import { getState, useStore } from '../state/store'
 import { Choice, Field, Slider } from './controls'
@@ -82,7 +82,16 @@ export function LiveVocals(): React.JSX.Element {
             <Slider id="live-tone" value={s.formant} min={-4} max={4} step={0.25} title="Deeper ↔ airier, without changing the pitch" onChange={(formant) => setLive({ formant })} />
           </Field>
           <Field label="Effect">
-            <select id="live-preset" className="select grow" value={s.preset} onChange={(e) => setLive({ preset: e.target.value as typeof s.preset })}>
+            <select
+              id="live-preset"
+              className="select grow"
+              value={s.preset}
+              onChange={(e) => {
+                // the sounds that bring their own tuning set it live too
+                const preset = e.target.value as typeof s.preset
+                setLive({ preset, ...PRESET_TUNING[preset] })
+              }}
+            >
               {VOCAL_PRESETS.map((p) => (
                 <option key={p.id} value={p.id} title={p.hint}>{p.name}</option>
               ))}
