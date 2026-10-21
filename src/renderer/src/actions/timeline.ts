@@ -1,4 +1,4 @@
-import { arrangeEnd, clearRange, removeBars, repeatRange, type Range } from '../model/timeline'
+import { arrangeEnd, clearRange, cropRange, removeBars, repeatRange, type Range } from '../model/timeline'
 import { ticksPerBar } from '../model/song'
 import { savePref } from '../state/prefs'
 import { getState } from '../state/store'
@@ -20,6 +20,14 @@ export function clearTimelineRange(): void {
   const r = getState().tlRange
   if (!r) return
   getState().apply((s) => clearRange(s, r))
+}
+
+/** Keeps only the timeline's range on its lanes, clearing the rest of them. */
+export function cropTimelineRange(): void {
+  const r = getState().tlRange
+  if (!r) return
+  getState().apply((s) => cropRange(s, r))
+  getState().notify('Cropped these tracks to the selection. Ctrl+Z undoes it.')
 }
 
 /**

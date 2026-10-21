@@ -14,6 +14,7 @@ import {
   cutSelection,
   deleteNotes,
   invertSelection,
+  mergeTracks,
   nudge,
   paste,
   quantize,
@@ -124,6 +125,7 @@ function onKey(e: KeyboardEvent): void {
       }
       if (st.playing) stop()
       st.setSelection(new Set())
+      st.set({ trackPicks: [] })
       return
     case 'ArrowUp':
     case 'ArrowDown':
@@ -163,6 +165,7 @@ function onKey(e: KeyboardEvent): void {
   else if (k === 'd') st.set({ tool: 'draw' })
   else if (k === 'r') void toggleRecord()
   else if (k === 't') st.set({ drawerOpen: !st.drawerOpen })
+  else if (k === 'g') mergeTracks()
   else if (k === 'm') {
     const t = st.song.tracks.find((x) => x.id === st.activeTrackId)
     if (t) updateTrack(t.id, { muted: !t.muted })

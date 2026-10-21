@@ -1,4 +1,4 @@
-import type { Range } from '../model/timeline'
+import type { Range, TimelineSnap } from '../model/timeline'
 import { create } from 'zustand'
 import { demoSong, type Snap, type Song } from '../model/song'
 import type { GuideVoice } from '../model/audio'
@@ -61,6 +61,8 @@ export interface EditorState {
 
   selection: Set<number>
   activeTrackId: number
+  /** tracks picked with Ctrl+click (Tracks tab or timeline), for G to merge */
+  trackPicks: number[]
   tool: Tool
   snap: Snap
   pxPerSec: number
@@ -132,6 +134,7 @@ export interface EditorState {
   timeline: boolean
   /** the stretch selected in the timeline */
   tlRange: Range | null
+  tlSnap: TimelineSnap
   /** the menu for changing a chord in the chord lane */
   chordMenu: { x: number; y: number; index: number } | null
   /** playback speed for practice (0.5..1); notes and audio slow down without changing pitch */
@@ -166,6 +169,7 @@ export const useStore = create<EditorState>()((set, get) => ({
 
   selection: new Set(),
   activeTrackId: initial.tracks[1].id,
+  trackPicks: [],
   tool: 'select',
   snap: '1/16',
   pxPerSec: 200,
@@ -215,6 +219,7 @@ export const useStore = create<EditorState>()((set, get) => ({
   contextMenu: null,
   timeline: loadPref('timeline', false),
   tlRange: null,
+  tlSnap: loadPref<TimelineSnap>('tlSnap', 'bar'),
   chordMenu: null,
   rate: 1,
   recovery: null,
@@ -257,6 +262,7 @@ export const useStore = create<EditorState>()((set, get) => ({
       gestureBase: null,
       selection: new Set(),
       activeTrackId: song.tracks[0]?.id ?? -1,
+      trackPicks: [],
       loop: null,
       loopOn: false
     })

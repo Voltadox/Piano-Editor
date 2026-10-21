@@ -15,6 +15,10 @@ export interface Range {
   audio: number[]
 }
 
+/** What the timeline snaps to as you select, move and crop. */
+export type TimelineSnap = 'bar' | 'beat' | '1/8' | '1/16' | 'off'
+export const TIMELINE_SNAPS: [TimelineSnap, string][] = [['bar', 'Bar'], ['beat', 'Beat'], ['1/8', '1/8'], ['1/16', '1/16'], ['off', 'Off']]
+
 /** Short fades where a clip is cut, so the cut doesn't click. */
 const CUT_FADE = 0.015
 /** Pedals that hold notes down: sustain, sostenuto, soft. */
@@ -169,6 +173,116 @@ export function repeatRange(song: Song, r: Range, times: number, limit = Infinit
     ...song,
     tracks: song.tracks.map((t) => (r.tracks.includes(t.id) ? repeatTrack(t) : t)),
     audioTracks: song.audioTracks.map((t) => (r.audio.includes(t.id) && !only ? { ...t, clips: repeatClips(t.clips) } : t))
+  }
+}
+
+/**
+ * Moves a range along the song by some ticks, on its own lanes: what was where it lands is
+ * replaced, and where it was is left silent. With `copy`, the original stays too. A drum-machine
+ * track moved by whole bars keeps its patterns; otherwise it becomes an ordinary track of its notes.
+ */
+export function moveRange(song: Song, r: Range, ticks: number, copy = false): Song {
+  ticks = Math.max(ticks, -r.from)
+  if (!ticks) return song
+  const from = r.from + ticks
+  const to = r.to + ticks
+  const B = ticksPerBar(song)
+
+  const moveTrack = (t: Track): Track => {
+    if (t.beat && barAligned(song, r.from, r.to) && ticks % B === 0) {
+      const bars = [...t.beat.bars]
+      if (!copy) for (let b = r.from / B; b < r.to / B; b++) bars[b] = null
+      for (let b = r.from / B; b < r.to / B; b++) bars[b + ticks / B] = t.beat.bars[b] ?? null
+      const beat = { ...t.beat, bars: Array.from({ length: bars.length }, (_, i) => bars[i] ?? null) }
+      return { ...t, beat, notes: beatNotes(song, beat) }
+    }
+    const src = t.beat ? freeze(t) : t
+    const base = clearNotes(copy ? src : clearNotes(src, r.from, r.to), from, to)
+    const inside = <T extends { tick: number }>(x: T): boolean => x.tick >= r.from && x.tick < r.to
+    const notes = [...base.notes, ...src.notes.filter(inside).map((n) => ({ ...n, id: copy ? newId() : n.id, tick: n.tick + ticks }))]
+    const ccs = [...base.ccs, ...src.ccs.filter(inside).map((c) => ({ ...c, tick: c.tick + ticks }))]
+    const bends = [...base.bends, ...src.bends.filter(inside).map((b) => ({ ...b, tick: b.tick + ticks }))]
+    // it starts with the pedals and bend as they were where the range started
+    for (const num of PEDALS) {
+      const v = ccBefore(src.ccs, num, r.from)
+      if (v >= 64 && !src.ccs.some((c) => c.num === num && c.tick === r.from)) ccs.push({ tick: from, num, val: v })
+    }
+    const bend = bendBefore(src.bends, r.from)
+    if (bend !== CENTRE && !src.bends.some((b) => b.tick === r.from)) bends.push({ tick: from, val: bend })
+    return { ...base, notes: sortNotes(notes), ccs: ccs.sort((a, b) => a.tick - b.tick), bends: bends.sort((a, b) => a.tick - b.tick) }
+  }
+
+  const moveClips = (clips: AudioClip[]): AudioClip[] => {
+    const parts = clips.map((c) => [c, clipPart(song, c, r.from, r.to)] as const).filter((x): x is readonly [AudioClip, AudioClip] => !!x[1])
+    const out = clearClips(song, copy ? clips : clearClips(song, clips, r.from, r.to), from, to)
+    for (const [c, p] of parts) out.push({ ...p, id: !copy && p === c ? c.id : newId(), tick: p.tick + ticks })
+    return out.sort((a, b) => a.tick - b.tick)
+  }
+
+  return {
+    ...song,
+    tracks: song.tracks.map((t) => (r.tracks.includes(t.id) ? moveTrack(t) : t)),
+    audioTracks: song.audioTracks.map((t) => (r.audio.includes(t.id) ? { ...t, clips: moveClips(t.clips) } : t))
+  }
+}
+
+/** Keeps only the range on its lanes: everything before and after it there is cleared. */
+export function cropRange(song: Song, r: Range): Song {
+  const end = arrangeEnd(song) + ticksPerBar(song)
+  const before = r.from > 0 ? clearRange(song, { ...r, from: 0, to: r.from }) : song
+  return r.to < end ? clearRange(before, { ...r, from: r.to, to: end }) : before
+}
+
+/**
+ * Moves one edge of an audio clip to a tick, cropping it (or, outward, bringing back what was
+ * cropped, up to the ends of its take, `takeSec` long). It never gets shorter than a twentieth of a second.
+ */
+export function trimClip(song: Song, trackId: number, clipId: number, edge: 'start' | 'end', tick: number, takeSec: number): Song {
+  const map = tempoMap(song)
+  const MIN = 0.05
+  return {
+    ...song,
+    audioTracks: song.audioTracks.map((t) =>
+      t.id !== trackId
+        ? t
+        : {
+            ...t,
+            clips: t.clips
+              .map((c) => {
+                if (c.id !== clipId) return c
+                const s0 = map.tickToSec(c.tick)
+                const s1 = s0 + c.duration
+                if (edge === 'end') {
+                  const duration = Math.max(MIN, Math.min(takeSec - c.offset, map.tickToSec(tick) - s0))
+                  return { ...c, duration, fadeOut: duration < c.duration ? CUT_FADE : c.fadeOut }
+                }
+                // the start can't go before the take does, nor before the song does
+                const start = Math.max(s0 - c.offset, 0, Math.min(s1 - MIN, map.tickToSec(tick)))
+                const offset = c.offset + (start - s0)
+                return { ...c, tick: map.secToTick(start), offset, duration: s1 - start, fadeIn: offset > 1e-6 ? CUT_FADE : c.fadeIn }
+              })
+              .sort((a, b) => a.tick - b.tick)
+          }
+    )
+  }
+}
+
+/**
+ * Crops a block of a note track (`from`..`to`, where its notes run) to start or end at a tick
+ * inside it. Notes crossing the new edge are shortened to it.
+ */
+export function trimNotes(song: Song, trackId: number, from: number, to: number, edge: 'start' | 'end', tick: number): Song {
+  if (tick <= from || tick >= to) return song
+  return {
+    ...song,
+    tracks: song.tracks.map((t0) => {
+      if (t0.id !== trackId) return t0
+      const t = t0.beat ? freeze(t0) : t0
+      if (edge === 'end') return clearNotes(t, tick, to)
+      const crossing = t.notes.filter((n) => n.tick >= from && n.tick < tick && n.tick + n.dur > tick)
+      const cleared = clearNotes(t, from, tick)
+      return { ...cleared, notes: sortNotes([...cleared.notes, ...crossing.map((n) => ({ ...n, tick, dur: n.tick + n.dur - tick }))]) }
+    })
   }
 }
 

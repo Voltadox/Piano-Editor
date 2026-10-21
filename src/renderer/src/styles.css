@@ -263,6 +263,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg3); paddin
 .track-list { list-style: none; margin: 0; padding: 0 10px; display: grid; gap: 8px; align-content: start; }
 .track { padding: 9px; border-radius: 10px; background: var(--bg2); border: 1px solid transparent; display: grid; gap: 7px; cursor: pointer; }
 .track.active { border-color: var(--accent); background: #1c2034; }
+.track.picked:not(.active) { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 .track-row { display: flex; align-items: center; gap: 6px; }
 .track-row.sub { gap: 8px; }
 .swatch { position: relative; width: 22px; height: 22px; border-radius: 6px; flex: none; cursor: pointer; }
@@ -417,6 +418,8 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg3); paddin
 .tl-head { border-left: 4px solid; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding: 6px 8px 6px 9px; display: flex; flex-direction: column; justify-content: center; gap: 4px; cursor: pointer; }
 .tl-head:hover { background: var(--bg2); }
 .tl-head.active { background: var(--bg3); }
+.tl-head.picked { box-shadow: inset 0 0 0 1px var(--accent); }
+.select.tl-snap { height: 26px; width: 54px; padding: 0 2px; font-size: 12px; }
 .tl-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .tl-meta { display: flex; align-items: center; gap: 4px; }
 .tl-meta .meta { flex: 1; color: var(--muted); font-size: 11px; }

@@ -87,11 +87,11 @@ export const HELP: HelpSection[] = [
       },
       {
         q: 'What is the timeline?',
-        a: 'Press Tab (or the switch in the top bar) for a view of every track laid out left to right, like a video editor: note tracks, vocals, the song and its stems, each in its own lane.\n- Drag across lanes to pick bars (hold Alt to pick beats). Shift+click stretches the selection.\n- Right-click it: Clear silences those bars on those tracks (for a vocal break), Repeat copies them to the end of the song or ×2, ×4, ×8, Loop plays them round, and Remove takes the bars out of the whole song so everything after moves back.\n- Del clears, Ctrl+D repeats once, Esc lets go.\n- Scroll to move along the song, Ctrl+scroll to zoom, Shift+scroll for more lanes. Click the ruler to move the playhead; Shift+drag it to set the loop.\n- Double-click to go to the falling notes at that point. Tab goes back.'
+        a: 'Press Tab (or the switch in the top bar) for a view of every track laid out left to right, like a video editor: note tracks, vocals, the song and its stems, each in its own lane.\n- The snap menu next to Fit sets what everything snaps to: bars, beats, 1/8, 1/16 or Off. Hold Alt while dragging to ignore it.\n- Drag across lanes to pick a stretch. Shift+click stretches the selection.\n- Drag inside the selection to move it along the song (what was where it lands is replaced). Ctrl+drag copies it instead.\n- Drag the edge of a clip or a block of notes to crop it. A cropped audio clip can be dragged back out.\n- Right-click it: Clear silences those bars on those tracks (for a vocal break), Crop to this keeps only the selection on those tracks, Repeat copies them to the end of the song or ×2, ×4, ×8, Loop plays them round, and Remove takes the bars out of the whole song so everything after moves back.\n- Del clears, Ctrl+D repeats once, Esc lets go.\n- Scroll to move along the song, Ctrl+scroll to zoom, Shift+scroll for more lanes. Click the ruler to move the playhead; Shift+drag it to set the loop.\n- Double-click to go to the falling notes at that point. Tab goes back.'
       },
       {
         q: 'Can I move the song or a vocal along the timeline?',
-        a: 'Yes. Drag an audio clip by the strip along its top (with its name on it). It moves by whole beats so it stays on the grid; hold Alt to move it freely. Dragging the song (or one of its stems) moves the song with everything that came from it: the stems, the notes to sing, the chord names and Chords pad, the lyrics and the recreated drums, bass and keys. Anything pulled back past the start of the song is cut off. Ctrl+Z puts it back.'
+        a: 'Yes. Drag an audio clip by the strip along its top (with its name on it). It moves by the timeline snap (the menu next to Fit); hold Alt to move it freely. Drag either end of a clip to crop it. Dragging the song (or one of its stems) moves the song with everything that came from it: the stems, the notes to sing, the chord names and Chords pad, the lyrics and the recreated drums, bass and keys. Anything pulled back past the start of the song is cut off. Ctrl+Z puts it back.'
       },
       {
         q: 'I played a loop without a click. How do I make it fit the bars?',
@@ -145,6 +145,7 @@ export const HELP: HelpSection[] = [
           ['Shift+V', 'Velocity lane'],
           ['T', 'Toggle the side panel'],
           ['M', 'Mute the active track'],
+          ['G', 'Merge the tracks picked with Ctrl+click'],
           ['+ / −', 'Zoom'],
           ['Esc', 'Stop and clear the selection'],
           ['F1 or ?', 'Open this guide']
@@ -203,6 +204,10 @@ export const HELP: HelpSection[] = [
       {
         q: 'How do I rename, recolour, mute or solo a track?',
         a: 'Click the name to type a new one. Click the colour swatch or one of the palette dots to recolour it. M mutes and S solos; `M` on the keyboard mutes the active track.'
+      },
+      {
+        q: 'Can I merge tracks into one?',
+        a: 'Yes. Click a track in the Tracks tab (or its name in the timeline), `Ctrl`+click the others, then press `G`. Their notes, pedal and bends all move into the topmost of them, which keeps its name, sound and mix. Drum tracks only merge with other drum tracks. A beat or recreated part becomes an ordinary track once merged, so its notes are not rebuilt over. `Ctrl+Z` splits them again.'
       },
       {
         q: 'How do I add or delete tracks?',

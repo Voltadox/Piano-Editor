@@ -53,6 +53,47 @@ export function removeTrack(id: number): void {
   if (activeTrackId === id) useStore.setState({ activeTrackId: getState().song.tracks[0].id })
 }
 
+/** Picks a track for merging; with `add` (Ctrl+click), alongside the tracks already picked. */
+export function pickTrack(id: number, add: boolean): void {
+  const picks = getState().trackPicks
+  useStore.setState({ trackPicks: add ? (picks.includes(id) ? picks : [...picks, id]) : [id] })
+}
+
+/**
+ * Merges the picked tracks into the topmost of them, as one undo step. It keeps that track's name,
+ * sound and mix, and becomes an ordinary track: a beat or recreated part would otherwise be rebuilt
+ * over the notes merged into it.
+ */
+export function mergeTracks(): void {
+  const { song, trackPicks } = getState()
+  const picked = song.tracks.filter((t) => trackPicks.includes(t.id))
+  if (picked.length < 2) {
+    getState().notify('Ctrl+click two or more tracks (in the Tracks tab or the timeline), then press G to merge them.')
+    return
+  }
+  const drums = picked.filter((t) => t.channel === DRUM_CHANNEL).length
+  if (drums && drums < picked.length) {
+    getState().notify('Drum tracks only merge with other drum tracks.')
+    return
+  }
+  const [into, ...rest] = picked
+  const gone = new Set(rest.map((t) => t.id))
+  const merged: Track = {
+    ...into,
+    notes: sortNotes(picked.flatMap((t) => t.notes)),
+    ccs: picked.flatMap((t) => t.ccs).sort((a, b) => a.tick - b.tick),
+    bends: picked.flatMap((t) => t.bends).sort((a, b) => a.tick - b.tick),
+    beat: undefined,
+    role: undefined,
+    remake: undefined,
+    beatbox: undefined,
+    silent: picked.every((t) => t.silent) || undefined
+  }
+  getState().apply((s) => ({ ...s, tracks: s.tracks.filter((t) => !gone.has(t.id)).map((t) => (t.id === into.id ? merged : t)) }))
+  useStore.setState({ activeTrackId: into.id, trackPicks: [into.id] })
+  getState().notify(`Merged ${picked.length} tracks into ${into.name}. Ctrl+Z splits them again.`)
+}
+
 /**
  * Changes a track's mixer settings. Tracks sharing a MIDI channel can't be mixed apart, so a
  * track that shares one is first moved to a free channel.

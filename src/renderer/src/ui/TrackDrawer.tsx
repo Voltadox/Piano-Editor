@@ -1,6 +1,6 @@
 import { GM_NAMES } from '../model/gm'
 import { DRUM_CHANNEL, PALETTE } from '../model/song'
-import { addTrack, choosePreset, removeTrack, selectTrack, setDrums, updateTrack } from '../state/edit'
+import { addTrack, choosePreset, pickTrack, removeTrack, selectTrack, setDrums, updateTrack } from '../state/edit'
 import { useStore } from '../state/store'
 import * as I from './icons'
 import { TrackExportButton } from './TrackExport'
@@ -10,24 +10,27 @@ import { FontChoice, FontPresets } from './SoundPicker'
 export function TracksPanel(): React.JSX.Element {
   const tracks = useStore((s) => s.song.tracks)
   const activeTrackId = useStore((s) => s.activeTrackId)
+  const picks = useStore((s) => s.trackPicks)
   const set = useStore((s) => s.set)
   const presets = useStore((s) => s.sfPresets)
   const sfName = useStore((s) => s.sfName)
 
   return (
     <>
-      <p className="drawer-hint">Click a track to select all its notes, ready to move, transpose or delete together (Ctrl+click adds another track). New notes go into the highlighted track.</p>
+      <p className="drawer-hint">Click a track to select all its notes, ready to move, transpose or delete together (Ctrl+click adds another track; then G merges them into one). New notes go into the highlighted track.</p>
       <ul className="track-list">
         {tracks.map((t) => {
           const drums = t.channel === DRUM_CHANNEL
           return (
             <li
               key={t.id}
-              className={`track${t.id === activeTrackId ? ' active' : ''}`}
+              className={`track${t.id === activeTrackId ? ' active' : ''}${picks.length > 1 && picks.includes(t.id) ? ' picked' : ''}`}
               onMouseDown={(e) => {
                 set({ activeTrackId: t.id })
                 // the track's own controls just do their job; anywhere else picks up all its notes
-                if (!(e.target as Element).closest('input, select, button, label')) selectTrack(t.id, e.ctrlKey || e.shiftKey, '')
+                if ((e.target as Element).closest('input, select, button, label')) return
+                selectTrack(t.id, e.ctrlKey || e.shiftKey, '')
+                pickTrack(t.id, e.ctrlKey || e.shiftKey)
               }}
             >
               <div className="track-row">
