@@ -237,6 +237,7 @@ export function FallView(): React.JSX.Element {
     }
     const chord = e.button === 0 ? chordPillAt(s, x, y) : null
     if (chord !== null) {
+      e.preventDefault() // no follow-up mousedown, which would close the menu straight away
       st.set({ chordMenu: { x: e.clientX, y: e.clientY, index: chord } })
       return
     }
@@ -249,8 +250,10 @@ export function FallView(): React.JSX.Element {
       const v = hitVocalNote(s, x, y)
       if (!v) return
       const ref = noteRef(vtrack.id, v.clip, v.note)
-      if (e.button === 2) st.set({ vocalNoteMenu: { ...ref, x: e.clientX, y: e.clientY } })
-      else {
+      if (e.button === 2) {
+        e.preventDefault() // no follow-up mousedown, which would close the menu straight away
+        st.set({ vocalNoteMenu: { ...ref, x: e.clientX, y: e.clientY } })
+      } else {
         const base = Number.isNaN(v.note.target) ? Math.round(v.note.sung) : v.note.target
         const notes = v.clip.notes.map((n) => ({ start: n.start * HOP_SEC, end: n.end * HOP_SEC }))
         const w = wordAt(notes, (ref.start + ref.end) / 2)
@@ -263,7 +266,10 @@ export function FallView(): React.JSX.Element {
     if (e.button === 2) {
       // right-click deletes an unselected note; with a selection it opens the selection menu
       if (hit && !st.selection.has(hit.noteId)) deleteNotes(new Set([hit.noteId]))
-      else if (st.selection.size) st.set({ contextMenu: { x: e.clientX, y: e.clientY } })
+      else if (st.selection.size) {
+        e.preventDefault() // no follow-up mousedown, which would close the menu straight away
+        st.set({ contextMenu: { x: e.clientX, y: e.clientY } })
+      }
       return
     }
 
