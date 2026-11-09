@@ -44,7 +44,10 @@ interface Strip {
 class Engine {
   ctx: AudioContext | null = null
   synth: WorkletSynthesizer | null = null
+  /** everything Keyfall plays except the metronome, before the volume slider (what the Keyfall mic sends) */
   private master: GainNode | null = null
+  /** the volume slider, after the master and the metronome */
+  private out: GainNode | null = null
   private initPromise: Promise<void> | null = null
 
   /** Untouched copy of the loaded soundfont, used by the export worker. */
@@ -112,11 +115,13 @@ class Engine {
       limiter.ratio.value = 12
       limiter.attack.value = 0.003
       limiter.release.value = 0.15
+      const out = ctx.createGain()
       synth.connect(master)
-      master.connect(limiter).connect(ctx.destination)
+      master.connect(out).connect(limiter).connect(ctx.destination)
       this.ctx = ctx
       this.synth = synth
       this.master = master
+      this.out = out
       await synth.isReady
     })()
     return this.initPromise
@@ -252,7 +257,7 @@ class Engine {
   }
 
   setVolume(v: number): void {
-    if (this.master && this.ctx) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02)
+    if (this.out && this.ctx) this.out.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02)
   }
 
   get duration(): number {
@@ -448,7 +453,8 @@ class Engine {
     env.gain.setValueAtTime(0, t)
     env.gain.linearRampToValueAtTime(downbeat ? 0.55 : 0.35, t + 0.002)
     env.gain.exponentialRampToValueAtTime(0.001, t + 0.05)
-    osc.connect(env).connect(this.master!)
+    // past the master, so the metronome stays out of the Keyfall mic
+    osc.connect(env).connect(this.out!)
     osc.start(t)
     osc.stop(t + 0.06)
     this.clicks.push(osc)
@@ -717,9 +723,25 @@ class Engine {
   }
 
 
-  /** Mixes a live source (the live-tuned mic) in with everything else. */
+  /**
+   * Mixes a live source (the live-tuned mic) in with everything else. It joins after the master,
+   * so the Keyfall mic (which tunes the voice itself) doesn't send it a second time.
+   */
   connectLive(node: AudioNode): void {
-    node.connect(this.master!)
+    node.connect(this.out!)
+  }
+
+  /** Feeds everything Keyfall plays (not the metronome, not affected by the volume slider) into a node. */
+  tapMix(node: AudioNode): void {
+    this.master!.connect(node)
+  }
+
+  untapMix(node: AudioNode): void {
+    try {
+      this.master?.disconnect(node)
+    } catch {
+      // wasn't connected
+    }
   }
 
   // ---------- auditioning ----------

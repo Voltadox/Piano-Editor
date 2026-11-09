@@ -35,3 +35,4 @@ export const IconImage = ({ size }: P) => svg(<><rect x="3" y="5" width="18" hei
 export const IconTimeline = ({ size }: P) => svg(<><rect x="3" y="5" width="9" height="4" rx="1" /><rect x="9" y="11" width="12" height="4" rx="1" /><rect x="5" y="17" width="7" height="3" rx="1" /><path d="M16 3v18" /></>, size)
 export const IconHelp = ({ size }: P) => svg(<><circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 0 1 4.9.7c0 1.7-2.4 2.1-2.4 3.8" /><circle cx="12" cy="17" r="0.6" fill="currentColor" /></>, size)
 export const IconRefresh = ({ size }: P) => svg(<><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></>, size)
+export const IconMic = ({ size }: P) => svg(<><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0" /><path d="M12 18v3" /></>, size)

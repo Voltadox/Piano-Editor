@@ -62,10 +62,17 @@ function aim(s: LiveSettings): { classes: number[]; target: number | null } {
   return { classes: keyClasses, target: null }
 }
 
+/** The live-tune worklet's file, to load into an AudioContext. */
+export const liveTuneUrl = (): string => new URL('live-tune.worklet.js', document.baseURI).href
+
+/** What a live-tune worklet should be told right now: the notes to aim at, retune speed, pitch and tone. */
+export function tuneMessage(s: LiveSettings): { classes: number[]; target: number | null; speed: number; transpose: number; formant: number } {
+  return { ...aim(s), speed: s.speed, transpose: s.transpose, formant: s.formant }
+}
+
 function send(s: LiveSettings): void {
   if (!live) return
-  const a = aim(s)
-  const msg = { ...a, speed: s.speed, transpose: s.transpose, formant: s.formant }
+  const msg = tuneMessage(s)
   const id = JSON.stringify(msg)
   if (id === live.sent) return
   live.sent = id
@@ -77,7 +84,7 @@ export async function startLive(): Promise<void> {
   if (live) return
   await openMic(getState().micId)
   const ctx = engine.ctx!
-  moduleReady ??= ctx.audioWorklet.addModule(new URL('live-tune.worklet.js', document.baseURI).href).catch((err) => {
+  moduleReady ??= ctx.audioWorklet.addModule(liveTuneUrl()).catch((err) => {
     moduleReady = null
     throw err
   })

@@ -254,6 +254,10 @@ export const HELP: HelpSection[] = [
     title: 'Studio mode, chord ideas and live autotune',
     entries: [
       {
+        q: 'Can other apps hear my voice and the piano together, as one mic?',
+        a: 'Yes, with the Keyfall mic: the microphone button in the top bar. Tick Keyfall mic and Keyfall mixes your real microphone with everything it plays (not the metronome) and sends it into a virtual cable. In Discord, OBS, a game and so on, pick the cable as your microphone; they hear your voice and the piano together for as long as Keyfall is open.\n- It needs VB-CABLE (free, from vb-audio.com) installed once. Keyfall finds it by itself. Rename its CABLE Output to "Keyfall" in Windows Sound settings to find it easily.\n- Voice and Piano set the levels the other app hears; the main volume slider doesn\'t change them. Mute my voice keeps the piano going.\n- Voice and piano are levelled and brought up to a strong, steady level, like a proper mic, so the other app hears them clearly.\n- Tick Autotune my voice to send it tuned, with Tone (formant), Pitch, Retune and an effect. These are the same settings as live autotune in Studio mode, and work without Studio mode open. With live autotune on in Studio mode, your voice goes out tuned anyway.\n- The button turns green while it\'s sending, yellow with your voice muted, and red if something needs attention.'
+      },
+      {
         q: 'Can I sing autotuned live, for a stream?',
         a: 'Yes. Open Studio mode (`S`) and tick Autotune my mic live in its panel. Your mic is tuned as you sing and mixed with the piano, about 30 ms behind your voice. Use headphones, or the speakers feed back into the mic.\n\nOn a stream, add Keyfall as an Application Audio Capture source in OBS: the piano and your tuned voice come through together. Closing Studio mode turns live autotune off.'
       },

@@ -37,6 +37,7 @@ import { Drawer } from './ui/Drawer'
 import { Transport } from './ui/Transport'
 import { ChordMenu } from './ui/ChordMenu'
 import { ContextMenu, VocalNoteMenu } from './ui/ContextMenu'
+import { initMicOut } from './audio/micOut'
 import { StudioPanel } from './ui/StudioPanel'
 import { VideoDialog } from './ui/VideoDialog'
 import { HelpDialog } from './ui/HelpDialog'
@@ -201,7 +202,10 @@ export default function App(): React.JSX.Element {
     const unwatchTakes = watchTakes()
     let stopAutosave: (() => void) | null = null
     void startAutosave().then((stopFn) => (stopAutosave = stopFn))
-    void engine.init().then(() => engine.setVolume(getState().volume))
+    void engine.init().then(() => {
+      engine.setVolume(getState().volume)
+      initMicOut()
+    })
     void restoreSoundfont()
     void applyBackupFont()
     void restoreBackground()

@@ -24,6 +24,8 @@ import { openHelp } from './HelpDialog'
 import { FitBars } from './ContextMenu'
 import { toggleTimeline } from '../actions/timeline'
 import * as I from './icons'
+import { Menu } from './Menu'
+import { MicOutMenu } from './MicOutMenu'
 
 function fmtTime(sec: number): string {
   const s = Math.max(0, sec)
@@ -54,42 +56,6 @@ function Clock(): React.JSX.Element {
     <div className="clock" title="Bar.beat and time">
       <span ref={barRef} className="clock-bar">1.1</span>
       <span ref={timeRef} className="clock-time">0:00.0</span>
-    </div>
-  )
-}
-
-/** A button that opens a dropdown; `children` gets a wrapper that closes the menu before running an item. */
-function Menu(props: {
-  trigger: React.ReactNode
-  title?: string
-  className?: string
-  align?: 'left' | 'right'
-  children: (run: (fn: () => void) => () => void) => React.ReactNode
-}): React.JSX.Element {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const close = (e: MouseEvent): void => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false)
-    }
-    window.addEventListener('mousedown', close)
-    return () => window.removeEventListener('mousedown', close)
-  }, [open])
-  const run = (fn: () => void) => () => {
-    setOpen(false)
-    fn()
-  }
-  return (
-    <div className="menu-wrap" ref={ref}>
-      <button className={props.className ?? 'btn'} title={props.title} onClick={() => setOpen(!open)} aria-expanded={open}>
-        {props.trigger}
-      </button>
-      {open && (
-        <div className={`menu${props.align === 'left' ? ' left' : ''}`} role="menu">
-          {props.children(run)}
-        </div>
-      )}
     </div>
   )
 }
@@ -551,6 +517,7 @@ export function Transport(): React.JSX.Element {
         <SoundfontMenu />
         <BackgroundMenu />
         <InputMenu />
+        <MicOutMenu />
         <ExportMenu />
         <button
           className={`icon-btn${laneOpen ? ' active' : ''}`}
