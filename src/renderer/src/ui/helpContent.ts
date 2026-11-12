@@ -259,7 +259,7 @@ export const HELP: HelpSection[] = [
       },
       {
         q: 'Can I sing autotuned live, for a stream?',
-        a: 'Yes. Open Studio mode (`S`) and tick Autotune my mic live in its panel. Your mic is tuned as you sing and mixed with the piano, about 30 ms behind your voice. Use headphones, or the speakers feed back into the mic. If hearing yourself that little bit late throws you off, untick Hear my voice: the Keyfall mic still sends your tuned voice.\n\nOn a stream, add Keyfall as an Application Audio Capture source in OBS: the piano and your tuned voice come through together. Closing Studio mode turns live autotune off.'
+        a: 'Yes. Open Studio mode (`S`) and tick Autotune my mic live in its panel. Your mic is tuned as you sing and mixed with the piano, about 30 ms behind your voice. Use headphones, or the speakers feed back into the mic. Set Voice to Mid or High if you don\'t sing low and it runs closer behind you (about 23 or 17 ms). If hearing yourself that little bit late still throws you off, turn Direct up to hear your own voice straight from the mic instead of the tuned one, or untick Hear my voice: the Keyfall mic sends your tuned voice either way.\n\nOn a stream, add Keyfall as an Application Audio Capture source in OBS: the piano and your tuned voice come through together. Closing Studio mode turns live autotune off.'
       },
       {
         q: 'What can live autotune tune to?',

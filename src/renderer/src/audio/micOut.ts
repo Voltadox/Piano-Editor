@@ -1,10 +1,10 @@
-import type { LiveSettings } from '../model/live'
+import { DIRECT_LIFT, type LiveSettings } from '../model/live'
 import { isCableIn, isCableOut, type MicOutSettings, type MicOutStatus } from '../model/micOut'
 import { tempoMap } from '../model/song'
 import { savePref } from '../state/prefs'
 import { getState, useStore } from '../state/store'
 import { engine, LOW_LATENCY, makeLimiter } from './engine'
-import { liveTuneUrl, loadLiveTune, tuneMessage } from './liveVocal'
+import { hearLevels, liveTuneNode, liveTuneUrl, loadLiveTune, tuneMessage } from './liveVocal'
 import { buildChain, type Chain } from './vocalChain'
 
 /**
@@ -25,6 +25,7 @@ import { buildChain, type Chain } from './vocalChain'
 interface Tuner {
   node: AudioWorkletNode
   chain: Chain
+  range: LiveSettings['range']
   preset: LiveSettings['preset']
   amount: number
   timer: number
@@ -45,7 +46,7 @@ interface Running {
   /** the voice to the cable, into its leveller */
   cable: VoicePath
   /** the voice to your own speakers, in Keyfall's main context, while Hear my voice is on */
-  monitor: (VoicePath & { gain: GainNode }) | null
+  monitor: (VoicePath & { gain: GainNode; drySource: MediaStreamAudioSourceNode; dry: GainNode }) | null
   voice: GainNode
   piano: GainNode
   meter: AnalyserNode
@@ -105,9 +106,10 @@ function sendTune(t: Tuner): void {
 
 /** Puts the tuner and vocal effect between the mic and where it goes, or takes them out, to match the settings. */
 function applyTune(r: VoicePath): void {
-  const want = wantsTune()
   const s = getState().live
-  if (!want) {
+  // a tuner made for another voice range has the wrong delay: take it out and make a new one
+  const want = wantsTune()
+  if (!want || (r.tuner && r.tuner.range !== s.range)) {
     if (!r.tuner) return
     clearInterval(r.tuner.timer)
     r.source.disconnect()
@@ -115,15 +117,15 @@ function applyTune(r: VoicePath): void {
     r.tuner.chain.output.disconnect()
     r.tuner = null
     r.source.connect(r.into)
-    return
+    if (!want) return
   }
   if (!r.tuner) {
-    const node = new AudioWorkletNode(r.ctx, 'keyfall-live-tune', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] })
+    const node = liveTuneNode(r.ctx, s.range)
     const chain = buildChain(r.ctx, s.preset, s.amount, beatOf())
     r.source.disconnect()
     r.source.connect(node).connect(chain.input)
     chain.output.connect(r.into)
-    const t: Tuner = { node, chain, preset: s.preset, amount: s.amount, timer: 0, sent: '' }
+    const t: Tuner = { node, chain, range: s.range, preset: s.preset, amount: s.amount, timer: 0, sent: '' }
     // keep the aim up to date with the keys held, the key and the playhead
     t.timer = window.setInterval(() => sendTune(t), 30)
     r.tuner = t
@@ -154,6 +156,8 @@ function dropMonitor(r: Running): void {
   m.tuner?.chain.output.disconnect()
   m.into.disconnect()
   m.gain.disconnect()
+  m.drySource.disconnect()
+  m.dry.disconnect()
 }
 
 /**
@@ -177,12 +181,20 @@ function applyHear(r: Running): void {
     gain.gain.value = 0
     source.connect(rumble).connect(gain)
     engine.connectLive(gain)
+    // your own voice straight through, mixed in by Direct while it's tuned
+    const drySource = ctx.createMediaStreamSource(r.stream)
+    const dry = ctx.createGain()
+    dry.gain.value = 0
+    drySource.connect(dry)
+    engine.connectLive(dry)
     void ctx.resume()
-    r.monitor = { ctx, source, into: rumble, tuner: null, gain }
+    r.monitor = { ctx, source, into: rumble, tuner: null, gain, drySource, dry }
   }
   applyTune(r.monitor)
   // no leveller on this side (it would add delay): the tuner brings the voice up itself, a raw mic needs a lift
-  r.monitor.gain.gain.setTargetAtTime(voiceLevel(s) * (r.monitor.tuner ? 1 : 2.5), ctx.currentTime, 0.02)
+  const levels = r.monitor.tuner ? hearLevels(getState().live, voiceLevel(s)) : { tuned: voiceLevel(s) * DIRECT_LIFT, dry: 0 }
+  r.monitor.gain.gain.setTargetAtTime(levels.tuned, ctx.currentTime, 0.02)
+  r.monitor.dry.gain.setTargetAtTime(levels.dry, ctx.currentTime, 0.02)
 }
 
 /** Everything that follows the settings without a restart. */

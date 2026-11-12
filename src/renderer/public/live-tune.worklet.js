@@ -1,7 +1,8 @@
 /* global AudioWorkletProcessor, registerProcessor, sampleRate */
 // Live autotune for the microphone, for singing over the piano (and on a stream). It finds the
 // pitch every 5 ms (YIN on a 16 kHz copy) and moves it with pitch-synchronous overlap-add
-// (PSOLA), the same way recorded takes are tuned, about 32 ms behind the voice. The work is in
+// (PSOLA), the same way recorded takes are tuned, three of the lowest note's periods behind the
+// voice: about 32 ms for a low voice (down to 95 Hz), less when told the voice won't go that low. The work is in
 // LiveTuner so it can be tested outside an AudioWorklet.
 
 const RING = 1 << 15
@@ -9,7 +10,7 @@ const MASK = RING - 1
 const TONE_MIN = Math.pow(2, -4 / 12)
 
 class LiveTuner {
-  constructor(sr) {
+  constructor(sr, lowest) {
     this.sr = sr
     this.inp = new Float32Array(RING)
     // low-passed input, for finding the main pulse of each period
@@ -39,7 +40,7 @@ class LiveTuner {
 
     // the longest period shifted; anything lower is treated as this. The delay covers a two-period
     // grain either side of a mark plus the look-ahead for finding the next pulse.
-    this.maxP = Math.round(sr / 95)
+    this.maxP = Math.round(sr / Math.max(80, Math.min(300, lowest || 95)))
     this.latency = Math.ceil(this.maxP * 3)
     this.marks = []
     this.mi = 0
@@ -381,9 +382,10 @@ class LiveTuner {
 
 if (typeof AudioWorkletProcessor !== 'undefined') {
   class KeyfallLiveTune extends AudioWorkletProcessor {
-    constructor() {
+    constructor(options) {
       super()
-      this.tuner = new LiveTuner(sampleRate)
+      const o = (options && options.processorOptions) || {}
+      this.tuner = new LiveTuner(sampleRate, o.lowest)
       this.since = 0
       this.port.onmessage = (e) => this.tuner.set(e.data)
     }

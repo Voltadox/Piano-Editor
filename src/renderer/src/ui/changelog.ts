@@ -12,6 +12,8 @@ export const CHANGELOG: Release[] = [
     notes: [
       'Keys sound sooner: Keyfall asks the sound card for a smaller buffer, and the limiter on the mix no longer holds everything back by 6 ms.',
       'Live autotune follows you instead of fighting you. It holds a note through vibrato rather than flipping to the one next door, leaves you alone when you’re already on the note, lets a scoop into a note through, and stops dragging you back when you move to the next note. My chords now pulls toward the chord but lets you sing the rest of the key over it.',
+      'Voice range for live autotune: tell it you’re a Mid or High voice and it tunes about 23 or 17 ms behind you instead of 32.',
+      'Direct: a slider that mixes your own voice, straight from the mic with no delay, into what you hear in place of the tuned one. What’s sent to other apps stays fully tuned.',
       'Hear my voice and Hear the piano, in the Keyfall mic menu: play your voice (as it’s sent) on your own headphones to check it, or keep the piano for the other app only. Studio mode’s live autotune has Hear my voice too: untick it to sing without your voice coming back late.'
     ]
   },

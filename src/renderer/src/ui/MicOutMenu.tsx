@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { setLive } from '../audio/liveVocal'
 import { listMicOutDevices, micOutLevel, setMicOut } from '../audio/micOut'
 import { PRESET_TUNING, VOCAL_PRESETS } from '../model/audio'
-import type { LiveSettings } from '../model/live'
+import { VOICE_RANGES, type LiveSettings, type VoiceRange } from '../model/live'
 import { isCableOut } from '../model/micOut'
 import { useStore } from '../state/store'
 import { Menu } from './Menu'
@@ -179,6 +179,17 @@ function TuneSettings(): React.JSX.Element {
           <option value="song" disabled={!hasMelody}>Tune to the song’s melody</option>
         </select>
       </div>
+      <div className="menu-field">
+        <select id="mic-out-range" className="select grow" title="How low you sing. The tuner has to wait for the lowest note it might get, so a higher voice is tuned with less delay. Notes below the range come out rough." value={l.range} onChange={(e) => setLive({ range: e.target.value as VoiceRange })}>
+          {VOICE_RANGES.map((v) => (
+            <option key={v.id} value={v.id}>{v.name} · {v.hint}</option>
+          ))}
+        </select>
+      </div>
+      <label className="menu-slider" title="With Hear my voice on: how much of what you hear is your own voice straight from the mic, with no delay, instead of the tuned one. Only changes what you hear, not what's sent.">
+        Direct
+        <input id="mic-out-direct" className="range" type="range" min={0} max={1} step={0.01} value={l.direct} onChange={(e) => setLive({ direct: Number(e.target.value) })} />
+      </label>
       <label className="menu-slider" title="Natural keeps your vibrato and slides; Hard snaps flat to the note">
         Retune
         <input id="mic-out-speed" className="range" type="range" min={0} max={1} step={0.01} value={l.speed} onChange={(e) => setLive({ speed: Number(e.target.value) })} />

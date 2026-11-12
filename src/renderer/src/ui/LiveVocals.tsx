@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { liveReading, setLive, startLive, stopLive } from '../audio/liveVocal'
 import { micLevel } from '../audio/vocalRecorder'
 import { PRESET_TUNING, VOCAL_PRESETS } from '../model/audio'
+import { VOICE_RANGES, type VoiceRange } from '../model/live'
 import { noteName } from '../model/song'
 import { getState, useStore } from '../state/store'
 import { Choice, Field, Slider } from './controls'
@@ -58,6 +59,11 @@ export function LiveVocals(): React.JSX.Element {
           <label className="check" title="Plays your tuned voice on your own speakers or headphones. It comes back a moment after you sing; untick it to sing without hearing it (the Keyfall mic still sends it).">
             <input id="live-monitor" type="checkbox" checked={s.monitor} onChange={(e) => setLive({ monitor: e.target.checked })} /> Hear my voice
           </label>
+          {s.monitor && (
+            <Field label="Direct">
+              <Slider id="live-direct" value={s.direct} min={0} max={1} title="How much of what you hear is your own voice straight from the mic, with no delay, instead of the tuned one. Turn it up if hearing yourself late throws you off. Only changes what you hear, not what's sent." onChange={(direct) => setLive({ direct })} />
+            </Field>
+          )}
           <div className="live-meter" title="Mic level">
             <div ref={meter} />
           </div>
@@ -73,6 +79,13 @@ export function LiveVocals(): React.JSX.Element {
                 { value: 'song', label: 'Song', title: hasMelody ? 'The reference song’s melody at the playhead, while it plays' : 'Separate a reference song’s vocals first', disabled: !hasMelody }
               ]}
             />
+          </Field>
+          <Field label="Voice">
+            <select id="live-range" className="select grow" title="How low you sing. The tuner has to wait for the lowest note it might get, so a higher voice is tuned with less delay. Notes below the range come out rough." value={s.range} onChange={(e) => setLive({ range: e.target.value as VoiceRange })}>
+              {VOICE_RANGES.map((v) => (
+                <option key={v.id} value={v.id}>{v.name} · {v.hint}</option>
+              ))}
+            </select>
           </Field>
           <Field label="Retune">
             <Slider id="live-speed" value={s.speed} min={0} max={1} title="Natural keeps your vibrato and slides; Hard snaps flat to the note" onChange={(speed) => setLive({ speed })} />

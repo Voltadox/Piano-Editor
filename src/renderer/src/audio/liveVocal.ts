@@ -1,5 +1,5 @@
 import { melodyPitchAt, scaleOf, songKey } from '../model/guide'
-import type { LiveSettings } from '../model/live'
+import { DIRECT_LIFT, lowestOf, type LiveSettings } from '../model/live'
 import type { Key } from '../model/harmony'
 import { tempoMap } from '../model/song'
 import { savePref } from '../state/prefs'
@@ -20,6 +20,9 @@ interface Live {
   node: AudioWorkletNode
   chain: Chain
   vol: GainNode
+  /** your own voice straight from the mic, for hearing yourself without the tuner's delay */
+  dry: GainNode
+  range: LiveSettings['range']
   preset: LiveSettings['preset']
   amount: number
   timer: number
@@ -91,6 +94,17 @@ export async function loadLiveTune(): Promise<void> {
   await moduleReady
 }
 
+/** The live-tune worklet for a voice range, in an AudioContext that has its module loaded. */
+export function liveTuneNode(ctx: AudioContext, range: LiveSettings['range']): AudioWorkletNode {
+  return new AudioWorkletNode(ctx, 'keyfall-live-tune', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1], processorOptions: { lowest: lowestOf(range) } })
+}
+
+/** How loud the tuned voice and the direct voice are on your own speakers. */
+export function hearLevels(s: LiveSettings, level: number): { tuned: number; dry: number } {
+  const d = Math.max(0, Math.min(1, s.direct))
+  return { tuned: level * (1 - d), dry: level * d * DIRECT_LIFT }
+}
+
 /** Turns live autotune on: opens the mic and puts the tuned voice into the mix. */
 export async function startLive(): Promise<void> {
   if (live) return
@@ -101,18 +115,23 @@ export async function startLive(): Promise<void> {
   if (!stream || live) return
   const s = getState().live
   const source = ctx.createMediaStreamSource(stream)
-  const node = new AudioWorkletNode(ctx, 'keyfall-live-tune', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] })
+  const node = liveTuneNode(ctx, s.range)
   node.port.onmessage = (e: MessageEvent<{ sung: number; target: number }>) => {
     reading = { ...e.data, at: performance.now() }
   }
   const chain = buildChain(ctx, s.preset, s.amount, beatOf())
+  const levels = hearLevels(s, s.monitor ? s.volume : 0)
   const vol = ctx.createGain()
-  vol.gain.value = s.monitor ? s.volume : 0
+  vol.gain.value = levels.tuned
+  const dry = ctx.createGain()
+  dry.gain.value = levels.dry
   source.connect(node).connect(chain.input)
   chain.output.connect(vol)
+  source.connect(dry)
   engine.connectLive(vol)
+  engine.connectLive(dry)
   await ctx.resume()
-  live = { source, node, chain, vol, preset: s.preset, amount: s.amount, timer: 0, sent: '' }
+  live = { source, node, chain, vol, dry, range: s.range, preset: s.preset, amount: s.amount, timer: 0, sent: '' }
   // keep the aim up to date with the keys held, the key and the playhead
   live.timer = window.setInterval(() => send(getState().live), 30)
   send(s)
@@ -125,6 +144,7 @@ export function stopLive(): void {
   live.node.disconnect()
   live.chain.output.disconnect()
   live.vol.disconnect()
+  live.dry.disconnect()
   live = null
   reading = null
 }
@@ -135,7 +155,15 @@ export function setLive(patch: Partial<LiveSettings>): void {
   useStore.setState({ live: s })
   savePref('live', s)
   if (!live || !engine.ctx) return
-  live.vol.gain.setTargetAtTime(s.monitor ? s.volume : 0, engine.ctx.currentTime, 0.02)
+  if (s.range !== live.range) {
+    // the tuner's delay is fixed when it's made: start again with the new one
+    stopLive()
+    void startLive()
+    return
+  }
+  const levels = hearLevels(s, s.monitor ? s.volume : 0)
+  live.vol.gain.setTargetAtTime(levels.tuned, engine.ctx.currentTime, 0.02)
+  live.dry.gain.setTargetAtTime(levels.dry, engine.ctx.currentTime, 0.02)
   if (s.preset !== live.preset || Math.abs(s.amount - live.amount) > 0.001) {
     // swap the effect between the tuner and the level
     live.node.disconnect()
