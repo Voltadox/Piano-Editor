@@ -167,6 +167,9 @@ export async function runSelftest(arg: string): Promise<void> {
     await window.keyfall.selftestCapture(`${outDir}/window-video.png`)
     getState().set({ videoOpen: false })
 
+    // how far behind a pressed key the sound is: the output buffer and the sound card
+    log('audio latency: buffer', ((engine.ctx?.baseLatency ?? 0) * 1000).toFixed(1), 'ms · sound card', ((engine.ctx?.outputLatency ?? 0) * 1000).toFixed(1), 'ms')
+
     // the mic capture worklet must load under the page's security policy
     await loadRecorderWorklet().then(
       () => log('recorder worklet loaded'),

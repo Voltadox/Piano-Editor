@@ -55,6 +55,9 @@ export function LiveVocals(): React.JSX.Element {
       </label>
       {on && (
         <>
+          <label className="check" title="Plays your tuned voice on your own speakers or headphones. It comes back a moment after you sing; untick it to sing without hearing it (the Keyfall mic still sends it).">
+            <input id="live-monitor" type="checkbox" checked={s.monitor} onChange={(e) => setLive({ monitor: e.target.checked })} /> Hear my voice
+          </label>
           <div className="live-meter" title="Mic level">
             <div ref={meter} />
           </div>

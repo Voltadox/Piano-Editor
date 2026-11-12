@@ -3,8 +3,8 @@ import { isCableIn, isCableOut, type MicOutSettings, type MicOutStatus } from '.
 import { tempoMap } from '../model/song'
 import { savePref } from '../state/prefs'
 import { getState, useStore } from '../state/store'
-import { engine } from './engine'
-import { liveTuneUrl, tuneMessage } from './liveVocal'
+import { engine, LOW_LATENCY, makeLimiter } from './engine'
+import { liveTuneUrl, loadLiveTune, tuneMessage } from './liveVocal'
 import { buildChain, type Chain } from './vocalChain'
 
 /**
@@ -17,6 +17,9 @@ import { buildChain, type Chain } from './vocalChain'
  * Studio mode); Keyfall's sound comes across from the main context as a stream. Both are levelled
  * and brought up before the limiter: a raw mic with no auto gain and the synth at unity are far
  * quieter than other apps expect from a microphone.
+ *
+ * Hear my voice plays the voice on your own speakers as well, from Keyfall's main context (the
+ * shortest way there), tuned the same way; Hear the piano off keeps Keyfall's sound for the cable only.
  */
 
 interface Tuner {
@@ -28,13 +31,21 @@ interface Tuner {
   sent: string
 }
 
+/** A voice on its way somewhere: the mic, where it goes in, and the tuner between them when autotune is on. */
+interface VoicePath {
+  ctx: AudioContext
+  source: MediaStreamAudioSourceNode
+  into: AudioNode
+  tuner: Tuner | null
+}
+
 interface Running {
   ctx: AudioContext
   stream: MediaStream
-  source: MediaStreamAudioSourceNode
-  /** the voice's leveller, where the raw or tuned voice goes in */
-  voiceIn: AudioNode
-  tuner: Tuner | null
+  /** the voice to the cable, into its leveller */
+  cable: VoicePath
+  /** the voice to your own speakers, in Keyfall's main context, while Hear my voice is on */
+  monitor: (VoicePath & { gain: GainNode }) | null
   voice: GainNode
   piano: GainNode
   meter: AnalyserNode
@@ -92,8 +103,8 @@ function sendTune(t: Tuner): void {
   t.node.port.postMessage(msg)
 }
 
-/** Puts the tuner and vocal effect between the mic and the leveller, or takes them out, to match the settings. */
-function applyTune(r: Running): void {
+/** Puts the tuner and vocal effect between the mic and where it goes, or takes them out, to match the settings. */
+function applyTune(r: VoicePath): void {
   const want = wantsTune()
   const s = getState().live
   if (!want) {
@@ -103,7 +114,7 @@ function applyTune(r: Running): void {
     r.tuner.node.disconnect()
     r.tuner.chain.output.disconnect()
     r.tuner = null
-    r.source.connect(r.voiceIn)
+    r.source.connect(r.into)
     return
   }
   if (!r.tuner) {
@@ -111,7 +122,7 @@ function applyTune(r: Running): void {
     const chain = buildChain(r.ctx, s.preset, s.amount, beatOf())
     r.source.disconnect()
     r.source.connect(node).connect(chain.input)
-    chain.output.connect(r.voiceIn)
+    chain.output.connect(r.into)
     const t: Tuner = { node, chain, preset: s.preset, amount: s.amount, timer: 0, sent: '' }
     // keep the aim up to date with the keys held, the key and the playhead
     t.timer = window.setInterval(() => sendTune(t), 30)
@@ -121,16 +132,63 @@ function applyTune(r: Running): void {
   }
   const t = r.tuner
   if (s.preset !== t.preset || Math.abs(s.amount - t.amount) > 0.001) {
-    // swap the effect between the tuner and the leveller
+    // swap the effect between the tuner and where it goes
     t.node.disconnect()
     t.chain.output.disconnect()
     t.chain = buildChain(r.ctx, s.preset, s.amount, beatOf())
     t.node.connect(t.chain.input)
-    t.chain.output.connect(r.voiceIn)
+    t.chain.output.connect(r.into)
     t.preset = s.preset
     t.amount = s.amount
   }
   sendTune(t)
+}
+
+function dropMonitor(r: Running): void {
+  const m = r.monitor
+  if (!m) return
+  r.monitor = null
+  if (m.tuner) clearInterval(m.tuner.timer)
+  m.source.disconnect()
+  m.tuner?.node.disconnect()
+  m.tuner?.chain.output.disconnect()
+  m.into.disconnect()
+  m.gain.disconnect()
+}
+
+/**
+ * What you hear on your own speakers: the piano (or not), and your voice as it's sent (or not).
+ * Live autotune in Studio mode plays the voice itself, so this stays out of its way.
+ */
+function applyHear(r: Running): void {
+  const s = getState().micOut
+  engine.setHeard(s.hearPiano)
+  const ctx = engine.ctx!
+  if (!s.hearVoice || getState().liveTune) {
+    dropMonitor(r)
+    return
+  }
+  if (!r.monitor) {
+    const source = ctx.createMediaStreamSource(r.stream)
+    const rumble = ctx.createBiquadFilter()
+    rumble.type = 'highpass'
+    rumble.frequency.value = 80
+    const gain = ctx.createGain()
+    gain.gain.value = 0
+    source.connect(rumble).connect(gain)
+    engine.connectLive(gain)
+    void ctx.resume()
+    r.monitor = { ctx, source, into: rumble, tuner: null, gain }
+  }
+  applyTune(r.monitor)
+  // no leveller on this side (it would add delay): the tuner brings the voice up itself, a raw mic needs a lift
+  r.monitor.gain.gain.setTargetAtTime(voiceLevel(s) * (r.monitor.tuner ? 1 : 2.5), ctx.currentTime, 0.02)
+}
+
+/** Everything that follows the settings without a restart. */
+function applyAll(r: Running): void {
+  applyTune(r.cable)
+  applyHear(r)
 }
 
 async function start(): Promise<void> {
@@ -152,16 +210,21 @@ async function start(): Promise<void> {
         echoCancellation: false,
         noiseSuppression: s.clean,
         autoGainControl: false,
-        channelCount: 1
-      }
+        channelCount: 1,
+        latency: { ideal: 0 }
+      } as MediaTrackConstraints
     })
     if (gen !== generation) {
       stream.getTracks().forEach((t) => t.stop())
       return
     }
-    const ctx = new AudioContext({ latencyHint: 'interactive', sinkId: sink.deviceId } as AudioContextOptions)
+    const ctx = new AudioContext({ latencyHint: LOW_LATENCY, sinkId: sink.deviceId } as AudioContextOptions)
+    let limiter: { input: AudioNode; output: AudioNode }
     try {
       await ctx.audioWorklet.addModule(liveTuneUrl())
+      // for hearing the voice on your own speakers
+      await loadLiveTune()
+      limiter = await makeLimiter(ctx)
       if (gen !== generation) throw new Error('superseded')
     } catch (err) {
       stream.getTracks().forEach((t) => t.stop())
@@ -186,12 +249,11 @@ async function start(): Promise<void> {
     const piano = ctx.createGain()
     piano.gain.value = s.piano
     ctx.createMediaStreamSource(tap.stream).connect(pianoComp).connect(piano)
-    // keeps a loud chord plus a shout from clipping in the other app
-    const limiter = compressor(ctx, -2, 20, 0, 0.002, 0.1)
-    voice.connect(limiter)
-    piano.connect(limiter)
-    limiter.connect(ctx.destination)
-    limiter.connect(meter)
+    // the limiter keeps a loud chord plus a shout from clipping in the other app
+    voice.connect(limiter.input)
+    piano.connect(limiter.input)
+    limiter.output.connect(ctx.destination)
+    limiter.output.connect(meter)
     const source = ctx.createMediaStreamSource(stream)
     source.connect(rumble)
     await ctx.resume()
@@ -202,8 +264,8 @@ async function start(): Promise<void> {
       void ctx.close()
       return
     }
-    run = { ctx, stream, source, voiceIn: rumble, tuner: null, voice, piano, meter, tap, key: keyOf(s) }
-    applyTune(run)
+    run = { ctx, stream, cable: { ctx, source, into: rumble, tuner: null }, monitor: null, voice, piano, meter, tap, key: keyOf(s) }
+    applyAll(run)
     const track = stream.getAudioTracks()[0]
     // the mic was unplugged: try again (another mic, or report it)
     track.onended = () => {
@@ -229,7 +291,9 @@ function teardown(): void {
   if (!run) return
   const r = run
   run = null
-  if (r.tuner) clearInterval(r.tuner.timer)
+  if (r.cable.tuner) clearInterval(r.cable.tuner.timer)
+  dropMonitor(r)
+  engine.setHeard(true)
   engine.untapMix(r.tap)
   r.stream.getTracks().forEach((t) => {
     t.onended = null
@@ -262,7 +326,7 @@ export function initMicOut(): void {
     })
     // autotune turned on or off in Studio mode, or its settings changed
     useStore.subscribe((st, prev) => {
-      if (run && (st.liveTune !== prev.liveTune || st.live !== prev.live)) applyTune(run)
+      if (run && (st.liveTune !== prev.liveTune || st.live !== prev.live)) applyAll(run)
     })
   }
   if (getState().micOut.on) void start()
@@ -284,7 +348,7 @@ export function setMicOut(patch: Partial<MicOutSettings>): void {
   const t = run.ctx.currentTime
   run.voice.gain.setTargetAtTime(voiceLevel(s), t, 0.02)
   run.piano.gain.setTargetAtTime(s.piano, t, 0.02)
-  applyTune(run)
+  applyAll(run)
 }
 
 /** The peak of what's going out of the Keyfall mic right now (voice and piano), 0..1, for the meter. */

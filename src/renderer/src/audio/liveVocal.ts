@@ -47,26 +47,28 @@ export function liveReading(): { sung: number; target: number } | null {
 const beatOf = (): number => 60 / tempoMap(getState().song).bpmAt(0)
 
 /** What the worklet should aim at right now, by the snap setting. */
-function aim(s: LiveSettings): { classes: number[]; target: number | null } {
+function aim(s: LiveSettings): { classes: number[]; soft: number[]; target: number | null } {
   const { song, playing } = getState()
   const keyClasses = scaleOf(heardKey ?? songKey(song))
   if (s.snap === 'chords') {
     const held = studioInput().held
     if (held.length) lastHeld = [...new Set(held.map((p) => p % 12))]
-    return { classes: lastHeld.length ? lastHeld : keyClasses, target: null }
+    // the chord's notes pull hardest; the rest of the key is fine too when it's sung close (a melody
+    // over a chord passes through notes that aren't in it)
+    return lastHeld.length ? { classes: lastHeld, soft: keyClasses, target: null } : { classes: keyClasses, soft: [], target: null }
   }
   if (s.snap === 'song' && playing) {
     const m = melodyPitchAt(song, engine.heardTime())
-    if (m !== null) return { classes: keyClasses, target: m }
+    if (m !== null) return { classes: keyClasses, soft: [], target: m }
   }
-  return { classes: keyClasses, target: null }
+  return { classes: keyClasses, soft: [], target: null }
 }
 
 /** The live-tune worklet's file, to load into an AudioContext. */
 export const liveTuneUrl = (): string => new URL('live-tune.worklet.js', document.baseURI).href
 
 /** What a live-tune worklet should be told right now: the notes to aim at, retune speed, pitch and tone. */
-export function tuneMessage(s: LiveSettings): { classes: number[]; target: number | null; speed: number; transpose: number; formant: number } {
+export function tuneMessage(s: LiveSettings): { classes: number[]; soft: number[]; target: number | null; speed: number; transpose: number; formant: number } {
   return { ...aim(s), speed: s.speed, transpose: s.transpose, formant: s.formant }
 }
 
@@ -79,16 +81,22 @@ function send(s: LiveSettings): void {
   live.node.port.postMessage(msg)
 }
 
+/** Loads the live-tune worklet into Keyfall's own AudioContext (once). */
+export async function loadLiveTune(): Promise<void> {
+  await engine.init()
+  moduleReady ??= engine.ctx!.audioWorklet.addModule(liveTuneUrl()).catch((err) => {
+    moduleReady = null
+    throw err
+  })
+  await moduleReady
+}
+
 /** Turns live autotune on: opens the mic and puts the tuned voice into the mix. */
 export async function startLive(): Promise<void> {
   if (live) return
   await openMic(getState().micId)
   const ctx = engine.ctx!
-  moduleReady ??= ctx.audioWorklet.addModule(liveTuneUrl()).catch((err) => {
-    moduleReady = null
-    throw err
-  })
-  await moduleReady
+  await loadLiveTune()
   const stream = micStream()
   if (!stream || live) return
   const s = getState().live
@@ -99,7 +107,7 @@ export async function startLive(): Promise<void> {
   }
   const chain = buildChain(ctx, s.preset, s.amount, beatOf())
   const vol = ctx.createGain()
-  vol.gain.value = s.volume
+  vol.gain.value = s.monitor ? s.volume : 0
   source.connect(node).connect(chain.input)
   chain.output.connect(vol)
   engine.connectLive(vol)
@@ -127,7 +135,7 @@ export function setLive(patch: Partial<LiveSettings>): void {
   useStore.setState({ live: s })
   savePref('live', s)
   if (!live || !engine.ctx) return
-  live.vol.gain.setTargetAtTime(s.volume, engine.ctx.currentTime, 0.02)
+  live.vol.gain.setTargetAtTime(s.monitor ? s.volume : 0, engine.ctx.currentTime, 0.02)
   if (s.preset !== live.preset || Math.abs(s.amount - live.amount) > 0.001) {
     // swap the effect between the tuner and the level
     live.node.disconnect()

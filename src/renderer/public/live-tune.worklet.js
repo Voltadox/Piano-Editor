@@ -50,11 +50,16 @@ class LiveTuner {
     this.wasVoiced = false
 
     // tuning
-    this.params = { classes: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], target: null, speed: 0.6, transpose: 0, formant: 0 }
+    // classes: the notes to land on; soft: others that are fine when sung close (the key, around a chord)
+    this.params = { classes: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], soft: [], target: null, speed: 0.6, transpose: 0, formant: 0 }
     this.current = NaN
     this.pending = NaN
     this.pendingCount = 0
     this.slow = NaN
+    this.ctr = NaN
+    this.m1 = NaN
+    this.m2 = NaN
+    this.age = 0
     this.corr = 0
     this.shift = 0
     this.sung = NaN
@@ -155,46 +160,110 @@ class LiveTuner {
     }
   }
 
+  /**
+   * How far a note is from being the one meant, in semitones: its distance from the pitch, more
+   * for notes outside the ones asked for, less for the note already being held (so vibrato and
+   * drift across the halfway point between two notes don't flip it back and forth).
+   */
+  cost(c, x, sticky) {
+    const p = this.params
+    const pc = ((c % 12) + 12) % 12
+    const classes = p.classes && p.classes.length ? p.classes : null
+    const soft = p.soft && p.soft.length ? p.soft : null
+    let pen = 0
+    if (classes && !classes.includes(pc)) {
+      if (soft && soft.includes(pc)) pen = 0.3
+      else {
+        // a note outside the key is only meant when it's sung nearly dead on; never when tuning hard
+        const speed = Math.max(0, Math.min(1, p.speed))
+        pen = (soft ? 0.3 : 0) + 1 - 0.5 * (1 - speed * speed * speed)
+      }
+    }
+    return Math.abs(c - x) + pen - (sticky && c === this.current ? 0.3 : 0)
+  }
+
+  /** The note a pitch is most likely meant to be. */
+  pick(x, sticky) {
+    const p = this.params
+    if (p.target !== null && p.target !== undefined) {
+      // the song's note, in the singer's octave, unless they're clearly on some other note
+      const t = p.target + 12 * Math.round((x - p.target) / 12)
+      if (Math.abs(x - t) <= 1.5) return t
+    }
+    const r = Math.round(x)
+    let cand = r
+    let best = Infinity
+    for (let c = r - 3; c <= r + 3; c++) {
+      const v = this.cost(c, x, sticky)
+      if (v < best) [best, cand] = [v, c]
+    }
+    return cand
+  }
+
   /** Which note to aim at and how far to move the voice, per detection. */
   retarget() {
     const p = this.params
     if (!(this.f0 > 0)) {
       this.current = NaN
       this.slow = NaN
+      this.ctr = NaN
       this.sung = NaN
+      this.age = 0
+      this.m1 = this.m2 = NaN
+      // let go of the last note's correction, so the next one doesn't start bent
+      this.corr *= 0.8
       this.shift = p.transpose
       return
     }
-    const m = 69 + 12 * Math.log2(this.f0 / 440)
+    const raw = 69 + 12 * Math.log2(this.f0 / 440)
+    // the middle of the last three readings: one stray reading doesn't move anything
+    const a = Number.isNaN(this.m1) ? raw : this.m1
+    const b = Number.isNaN(this.m2) ? a : this.m2
+    const m = Math.max(Math.min(raw, a), Math.min(Math.max(raw, a), b))
+    this.m2 = this.m1
+    this.m1 = raw
     this.sung = m
-    let cand
-    if (p.target !== null && p.target !== undefined) cand = p.target + 12 * Math.round((m - p.target) / 12)
-    else {
-      const classes = p.classes && p.classes.length ? p.classes : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-      cand = Math.round(m)
-      let best = Infinity
-      for (let c = Math.round(m) - 6; c <= Math.round(m) + 6; c++)
-        if (classes.includes(((c % 12) + 12) % 12) && Math.abs(c - m) < best) [best, cand] = [Math.abs(c - m), c]
-    }
-    if (Number.isNaN(this.current)) this.current = cand
-    else if (cand !== this.current) {
-      // move to a new note once the voice has clearly gone there: for 15 ms, or over a semitone away
-      if (cand === this.pending) this.pendingCount++
-      else [this.pending, this.pendingCount] = [cand, 1]
-      if (this.pendingCount >= 3 || Math.abs(m - this.current) > 1.2) {
-        this.current = cand
-        this.pendingCount = 0
-        if (!Number.isNaN(this.slow)) this.slow = m - (m - this.slow) * 0.3
-      }
-    } else this.pendingCount = 0
     const hopSec = this.hop / this.sr
+    this.age++
+    // the centre of the voice over the last ~50 ms: where a note with vibrato really sits
+    this.ctr = Number.isNaN(this.ctr) ? m : this.ctr + (m - this.ctr) * (1 - Math.exp(-hopSec / 0.05))
+    const settling = this.age <= 8
+    let unsure = false
+    if (Number.isNaN(this.current)) this.current = this.pick(m, false)
+    else if (settling) {
+      // the first 40 ms of a note are often a scoop up to it: follow it freely
+      this.current = this.pick(m, true)
+    } else {
+      // near the held note, go by the centre of the voice; a real jump is taken as sung
+      const far = Math.abs(m - this.current) >= 1
+      const cand = this.pick(far ? m : this.ctr, true)
+      unsure = this.pick(m, true) !== this.current
+      if (cand !== this.current) {
+        if (cand === this.pending) this.pendingCount++
+        else [this.pending, this.pendingCount] = [cand, 1]
+        if (this.pendingCount >= 3) {
+          this.current = cand
+          this.pendingCount = 0
+          this.ctr = m
+          unsure = false
+          if (!Number.isNaN(this.slow)) this.slow = m - (m - this.slow) * 0.3
+        }
+      } else this.pendingCount = 0
+    }
     this.slow = Number.isNaN(this.slow) ? m : this.slow + (m - this.slow) * (1 - Math.exp(-hopSec / 0.12))
     // Natural keeps the singer's own vibrato and slides around the note; Hard holds it flat
     const speed = Math.max(0, Math.min(1, p.speed))
     const keep = Math.pow(1 - speed, 0.9)
-    const want = this.current - ((1 - keep) * m + keep * this.slow)
+    let want = this.current - ((1 - keep) * m + keep * this.slow)
+    // already on the note: leave the voice alone (more leeway the more natural the setting)
+    const leeway = 0.25 * (1 - speed)
+    if (leeway > 0) want *= Math.max(0, Math.min(1, (Math.abs(this.current - this.slow) - leeway) / leeway))
+    // a note eases in rather than snapping from its first instant
+    const ease = 0.005 + 0.06 * (1 - speed)
+    want *= Math.min(1, (this.age * hopSec) / ease)
     const glide = 0.005 + 0.12 * Math.pow(1 - speed, 1.5)
-    this.corr += (want - this.corr) * (1 - Math.exp(-hopSec / glide))
+    // on the way to another note (or at the far edge of a vibrato): hold, rather than drag it back
+    if (!unsure) this.corr += (want - this.corr) * (1 - Math.exp(-hopSec / glide))
     this.shift = Math.max(-12, Math.min(12, this.corr + p.transpose))
   }
 

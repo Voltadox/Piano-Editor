@@ -87,7 +87,7 @@ export async function openMic(deviceId = ''): Promise<void> {
   closeMic()
   await loadRecorderWorklet()
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { deviceId: deviceId ? { exact: deviceId } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }
+    audio: { deviceId: deviceId ? { exact: deviceId } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1, latency: { ideal: 0 } } as MediaTrackConstraints
   })
   const source = ctx.createMediaStreamSource(stream)
   const node = new AudioWorkletNode(ctx, 'keyfall-recorder', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] })

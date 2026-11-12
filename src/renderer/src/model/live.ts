@@ -13,6 +13,8 @@ export interface LiveSettings {
   preset: VocalPreset
   amount: number
   volume: number
+  /** play the tuned voice on your own speakers in Studio mode (off: sing without hearing it come back late) */
+  monitor: boolean
 }
 
-export const DEFAULT_LIVE: LiveSettings = { snap: 'key', speed: 0.7, transpose: 0, formant: 0, preset: 'clean', amount: 0.4, volume: 0.9 }
+export const DEFAULT_LIVE: LiveSettings = { snap: 'key', speed: 0.7, transpose: 0, formant: 0, preset: 'clean', amount: 0.4, volume: 0.9, monitor: true }

@@ -11,6 +11,34 @@ import { placeFont, placed, renumbered, slotKey, slotsOf, soundSlot } from './fo
 
 const LOOKAHEAD = 0.12 // seconds of events queued in the synth ahead of the playhead
 const START_DELAY = 0.04
+/**
+ * The output buffer asked for, in seconds. Chromium's 'interactive' is 10 ms on Windows; asking for
+ * less gets a smaller buffer where the sound card allows it, so a key sounds sooner after it's pressed.
+ */
+export const LOW_LATENCY = 0.005
+
+/**
+ * A limiter for the end of a mix: Keyfall's own (no delay), or the browser's compressor (6 ms
+ * behind) if that can't load. Both come out about 1.5 dB up on what goes in.
+ */
+export async function makeLimiter(ctx: AudioContext): Promise<{ input: AudioNode; output: AudioNode }> {
+  try {
+    await ctx.audioWorklet.addModule(new URL('limiter.worklet.js', document.baseURI).href)
+    const input = ctx.createGain()
+    input.gain.value = 1.2
+    const node = new AudioWorkletNode(ctx, 'keyfall-limiter', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], channelCount: 2, channelCountMode: 'explicit' })
+    input.connect(node)
+    return { input, output: node }
+  } catch {
+    const c = ctx.createDynamicsCompressor()
+    c.threshold.value = -3
+    c.knee.value = 3
+    c.ratio.value = 12
+    c.attack.value = 0.003
+    c.release.value = 0.15
+    return { input: c, output: c }
+  }
+}
 
 type Listener = () => void
 
@@ -46,6 +74,8 @@ class Engine {
   synth: WorkletSynthesizer | null = null
   /** everything Keyfall plays except the metronome, before the volume slider (what the Keyfall mic sends) */
   private master: GainNode | null = null
+  /** between the master and the volume slider: shut to keep Keyfall's sound off your own speakers */
+  private heard: GainNode | null = null
   /** the volume slider, after the master and the metronome */
   private out: GainNode | null = null
   private initPromise: Promise<void> | null = null
@@ -104,20 +134,19 @@ class Engine {
 
   init(): Promise<void> {
     this.initPromise ??= (async () => {
-      const ctx = new AudioContext({ latencyHint: 'interactive' })
+      const ctx = new AudioContext({ latencyHint: LOW_LATENCY })
       await ctx.audioWorklet.addModule(processorUrl)
       const synth = new WorkletSynthesizer(ctx)
       const master = ctx.createGain()
-      // a gentle limiter keeps a full mix of piano, drums and vocals out of clipping
-      const limiter = ctx.createDynamicsCompressor()
-      limiter.threshold.value = -3
-      limiter.knee.value = 3
-      limiter.ratio.value = 12
-      limiter.attack.value = 0.003
-      limiter.release.value = 0.15
+      const heard = ctx.createGain()
       const out = ctx.createGain()
       synth.connect(master)
-      master.connect(out).connect(limiter).connect(ctx.destination)
+      master.connect(heard).connect(out)
+      // keeps a full mix of piano, drums and vocals out of clipping, without delaying it
+      const limiter = await makeLimiter(ctx)
+      out.connect(limiter.input)
+      limiter.output.connect(ctx.destination)
+      this.heard = heard
       this.ctx = ctx
       this.synth = synth
       this.master = master
@@ -734,6 +763,11 @@ class Engine {
   /** Feeds everything Keyfall plays (not the metronome, not affected by the volume slider) into a node. */
   tapMix(node: AudioNode): void {
     this.master!.connect(node)
+  }
+
+  /** Whether what Keyfall plays is heard on your own speakers (the Keyfall mic still gets it either way). */
+  setHeard(on: boolean): void {
+    if (this.heard && this.ctx) this.heard.gain.setTargetAtTime(on ? 1 : 0, this.ctx.currentTime, 0.01)
   }
 
   untapMix(node: AudioNode): void {

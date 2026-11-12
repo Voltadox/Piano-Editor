@@ -14,9 +14,13 @@ export interface MicOutSettings {
   clean: boolean
   /** autotune the voice on its way out, with live autotune's settings (tune to, retune, pitch, tone, effect) */
   tune: boolean
+  /** play your voice, as it's sent, on your own speakers too */
+  hearVoice: boolean
+  /** play what Keyfall plays on your own speakers too (off: only the other app hears it) */
+  hearPiano: boolean
 }
 
-export const DEFAULT_MIC_OUT: MicOutSettings = { on: false, micId: '', sinkId: '', voice: 1, piano: 0.8, muted: false, clean: false, tune: false }
+export const DEFAULT_MIC_OUT: MicOutSettings = { on: false, micId: '', sinkId: '', voice: 1, piano: 0.8, muted: false, clean: false, tune: false, hearVoice: false, hearPiano: true }
 
 export type MicOutStatus =
   | { state: 'off' }

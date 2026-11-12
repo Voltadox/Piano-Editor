@@ -73,6 +73,7 @@ function Status(): React.JSX.Element | null {
 
 function Settings({ live }: { live: boolean }): React.JSX.Element {
   const s = useStore((st) => st.micOut)
+  const liveMonitor = useStore((st) => st.live.monitor)
   const [devices, setDevices] = useState<{ outputs: MediaDeviceInfo[]; mics: MediaDeviceInfo[] }>({ outputs: [], mics: [] })
   const meter = useRef<HTMLDivElement>(null)
 
@@ -122,6 +123,20 @@ function Settings({ live }: { live: boolean }): React.JSX.Element {
         <input id="mic-out-mute" type="checkbox" checked={s.muted} onChange={(e) => setMicOut({ muted: e.target.checked })} />
         Mute my voice
         <span className="kbd">piano keeps going</span>
+      </label>
+      <label className="menu-check" title="Plays your voice on your own speakers or headphones, as the other app hears it (tuned, if autotune is on). It comes back a moment after you sing; untick it if that throws you off. Use headphones, or it feeds back into the mic.">
+        <input
+          id="mic-out-hear-voice"
+          type="checkbox"
+          checked={live ? liveMonitor : s.hearVoice}
+          onChange={(e) => (live ? setLive({ monitor: e.target.checked }) : setMicOut({ hearVoice: e.target.checked }))}
+        />
+        Hear my voice
+        {live && <span className="kbd">Studio</span>}
+      </label>
+      <label className="menu-check" title="Plays what Keyfall plays on your own speakers or headphones. Untick it and only the other app hears it.">
+        <input id="mic-out-hear-piano" type="checkbox" checked={s.hearPiano} onChange={(e) => setMicOut({ hearPiano: e.target.checked })} />
+        Hear the piano
       </label>
       <label className="menu-check" title="Chromium's noise suppression: takes out fans and hiss, can make singing sound thinner">
         <input id="mic-out-clean" type="checkbox" checked={s.clean} onChange={(e) => setMicOut({ clean: e.target.checked })} />
