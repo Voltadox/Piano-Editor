@@ -10,8 +10,10 @@ export interface MicOutSettings {
   /** the piano's (everything Keyfall plays) level, 0..2 */
   piano: number
   muted: boolean
-  /** let Chromium's noise suppression clean up the mic */
+  /** take background noise (fans, hiss, hum) out of the voice; the piano isn't touched */
   clean: boolean
+  /** how hard, 0..1 */
+  denoise: number
   /** autotune the voice on its way out, with live autotune's settings (tune to, retune, pitch, tone, effect) */
   tune: boolean
   /** play your voice, as it's sent, on your own speakers too */
@@ -20,7 +22,7 @@ export interface MicOutSettings {
   hearPiano: boolean
 }
 
-export const DEFAULT_MIC_OUT: MicOutSettings = { on: false, micId: '', sinkId: '', voice: 1, piano: 0.8, muted: false, clean: false, tune: false, hearVoice: false, hearPiano: true }
+export const DEFAULT_MIC_OUT: MicOutSettings = { on: false, micId: '', sinkId: '', voice: 1, piano: 0.8, muted: false, clean: false, denoise: 0.6, tune: false, hearVoice: false, hearPiano: true }
 
 export type MicOutStatus =
   | { state: 'off' }

@@ -138,10 +138,17 @@ function Settings({ live }: { live: boolean }): React.JSX.Element {
         <input id="mic-out-hear-piano" type="checkbox" checked={s.hearPiano} onChange={(e) => setMicOut({ hearPiano: e.target.checked })} />
         Hear the piano
       </label>
-      <label className="menu-check" title="Chromium's noise suppression: takes out fans and hiss, can make singing sound thinner">
+      <label className="menu-check" title="Takes the room out of your voice: fans, hiss, hum, anything that stays put while you sing or talk. Only your voice goes through it, so the piano sounds the same. Turn off noise suppression in the other app (Krisp in Discord, the noise filter in OBS): that one hears the piano too, and chews it up.">
         <input id="mic-out-clean" type="checkbox" checked={s.clean} onChange={(e) => setMicOut({ clean: e.target.checked })} />
         Reduce background noise
+        <span className="kbd">voice only</span>
       </label>
+      {s.clean && (
+        <label className="menu-slider" title="How much of the room is taken out. Higher is quieter between words; if your voice starts to sound thin or watery, bring it down.">
+          Noise
+          <input id="mic-out-denoise" className="range" type="range" min={0.05} max={1} step={0.01} value={s.denoise} onChange={(e) => setMicOut({ denoise: Number(e.target.value) })} />
+        </label>
+      )}
       <label className="menu-check" title={live ? 'Live autotune is on in Studio mode, so your voice goes out tuned' : 'Tunes your voice on its way out, with the same settings as live autotune in Studio mode'}>
         <input id="mic-out-tune" type="checkbox" checked={s.tune || live} disabled={live} onChange={(e) => setMicOut({ tune: e.target.checked })} />
         Autotune my voice
